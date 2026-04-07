@@ -3,61 +3,58 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rock Paper Scissors - Hand Gesture Game</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <title>AI Rock Paper Scissors | Hand Gesture Game</title>
+    <meta name="description" content="Play Rock Paper Scissors against an AI using hand gestures in your browser. Powered by MediaPipe Hands.">
     <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- MediaPipe Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Rock <span class="accent">Paper</span> Scissors</h1>
-            <p>Play with hand gestures using your webcam!</p>
+            <h1>AI <span class="accent">GESTURE</span> GAME</h1>
+            <p>Rock Paper Scissors vs Computer • Powered by MediaPipe</p>
         </header>
 
-        <div class="game-area">
+        <main class="game-board">
             <div class="video-container">
-                <video id="input_video" autoplay playsinline></video>
+                <video id="input_video" autoplay playsinline muted></video>
                 <canvas id="output_canvas" width="640" height="480"></canvas>
-                <div id="gesture-indicator" class="gesture-indicator hidden">✊ Rock</div>
+                <div id="countdown" class="hidden">3</div>
+                <div id="gesture-indicator" class="hidden">❓ Unknown</div>
             </div>
 
-            <div class="controls">
-                <button id="start-btn" class="start-btn">Start Game</button>
-                <div id="countdown" class="countdown hidden">3</div>
-            </div>
-
-            <div id="result-badge" class="result-badge hidden">Result</div>
-
-            <div class="moves">
-                <div class="move">
-                    <h3>You</h3>
+            <div class="stats-panel">
+                <div class="stat-card">
+                    <h3>PLAYER</h3>
                     <div id="player-move" class="move-icon">❓</div>
+                    <div class="score">Score: <span id="player-score">0</span></div>
                 </div>
-                <div class="vs">VS</div>
-                <div class="move">
-                    <h3>Computer</h3>
+
+                <div class="vs-badge">VS</div>
+
+                <div class="stat-card">
+                    <h3>COMPUTER</h3>
                     <div id="computer-move" class="move-icon">❓</div>
+                    <div class="score">Score: <span id="cpu-score">0</span></div>
                 </div>
-            </div>
 
-            <div class="score">
-                <div class="score-item">
-                    <span id="player-score">0</span>
-                    <span>Your Score</span>
-                </div>
-                <div class="score-item">
-                    <span id="cpu-score">0</span>
-                    <span>CPU Score</span>
-                </div>
+                <button id="start-btn" class="primary-btn">START GAME</button>
+                <div id="result-badge" class="result-badge hidden">YOU WIN!</div>
             </div>
-        </div>
+        </main>
+
+        <footer class="info-footer">
+            <div class="hint">
+                <span>✊ Close fist for Rock</span>
+                <span>✋ Open hand for Paper</span>
+                <span>✌️ Two fingers for Scissors</span>
+            </div>
+        </footer>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
