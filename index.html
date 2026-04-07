@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rock Paper Scissors - Hand Gesture Game</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Rock <span class="accent">Paper</span> Scissors</h1>
+            <p>Play with hand gestures using your webcam!</p>
+        </header>
+
+        <div class="game-area">
+            <div class="video-container">
+                <video id="input_video" autoplay playsinline></video>
+                <canvas id="output_canvas" width="640" height="480"></canvas>
+                <div id="gesture-indicator" class="gesture-indicator hidden">✊ Rock</div>
+            </div>
+
+            <div class="controls">
+                <button id="start-btn" class="start-btn">Start Game</button>
+                <div id="countdown" class="countdown hidden">3</div>
+            </div>
+
+            <div id="result-badge" class="result-badge hidden">Result</div>
+
+            <div class="moves">
+                <div class="move">
+                    <h3>You</h3>
+                    <div id="player-move" class="move-icon">❓</div>
+                </div>
+                <div class="vs">VS</div>
+                <div class="move">
+                    <h3>Computer</h3>
+                    <div id="computer-move" class="move-icon">❓</div>
+                </div>
+            </div>
+
+            <div class="score">
+                <div class="score-item">
+                    <span id="player-score">0</span>
+                    <span>Your Score</span>
+                </div>
+                <div class="score-item">
+                    <span id="cpu-score">0</span>
+                    <span>CPU Score</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "gesture-arena",
+  "version": "1.0.0",
+  "description": "Rock Paper Scissors game using hand gesture recognition",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve .",
+    "dev": "npx live-server ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "serve": "^14.2.1"
+  }
+}
