@@ -1,4 +1,4 @@
-const videoElement = document.getElementById('input_video');
+tep;                int a_val = A[curr_i] - '0';        int b_val = B[curr_j] - '0';        int gain = a_val * b_val;                prefix_score[step + 1] = prefix_score[step] + gain;        if (a_val == b_val) {            curr_i = (curr_i + 1) % N;        } else {            curr_j = (curr_j + 1) % N;        }        step++;    }    int start_step = visited_step[curr_i * N + curr_j];    int cycle_len = step - start_step;    ll score_before_cycle = prefix_score[start_step];    ll score_per_cycle = prefix_score[step] - prefix_score[start_step];    // Process Queries    for (int q = 0; q < Q; q++) {        ll K;        scanf("%lld", &K);        if (K <= step) {            printf("%lld%c", prefix_score[K], (q == Q - 1 ? '\n' : ' '));        } else {            ll remaining_K = K - start_step;            ll num_cycles = remaining_K / cycle_len;            int remainder = remaining_K % cycle_len;            ll total_score = score_before_cycle + (num_cycles * score_per_cycle) +                              (prefix_score[start_step + remainder] - prefix_score[start_step]);                        printf("%lld%c", total_score, (q == Q - 1 ? 'const videoElement = document.getElementById('input_video');
 const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
 const startBtn = document.getElementById('start-btn');
@@ -13,7 +13,37 @@ const indicator = document.getElementById('gesture-indicator');
 let isGamePlaying = false;
 let currentGesture = 'Unknown';
 let playerScore = 0;
-let cpuScore = 0;
+let cpuScore = 0;clude <string.h>
+
+typedef long long ll;
+
+// State structure to track visited rotations
+typedef struct {
+    int next_i, next_j;
+        int added_score;
+        } State;
+
+        void solve() {
+            int N, Q;
+                if (scanf("%d %d", &N, &Q) != 2) return;
+
+                    char *A = (char *)malloc(N + 1);
+                        char *B = (char *)malloc(N + 1);
+                            scanf("%s %s", A, B);
+
+                                // To track when a state (i, j) was first visited
+                                    // Using a 1D array to represent 2D (i * N + j)
+                                        int *visited_step = (int *)malloc((ll)N * N * sizeof(int));
+                                            ll *prefix_score = (ll *)malloc(((ll)N * N + 1) * sizeof(ll));
+                                                
+                                                    for (ll i = 0; i < (ll)N * N; i++) visited_step[i] = -1;
+
+                                                        int curr_i = 0, curr_j = 0;
+                                                            int step = 0;
+                                                                prefix_score[0] = 0;
+
+                                                                    // Simulation to find the cycle
+                                                                        
 
 const GESTURE_ICONS = {
     'Rock': '✊',
@@ -84,7 +114,7 @@ const hands = new Hands({
 });
 
 hands.setOptions({
-    maxNumHands: 1,
+    maxNumHands: 2,
     modelComplexity: 1,
     minDetectionConfidence: 0.5,
     minTrackingConfidence: 0.5

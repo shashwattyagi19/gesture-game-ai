@@ -15,7 +15,10 @@
 <body>
     <div class="container">
         <header>
-            <h1>AI <span class="accent">GESTURE</span> GAME</h1>
+            <div class="header-top">
+                <h1>AI <span class="accent">GESTURE</span> GAME</h1>
+                <button id="settings-btn" class="icon-btn" title="ElevenLabs Settings">⚙️</button>
+            </div>
             <p>Rock Paper Scissors vs Computer • Powered by MediaPipe</p>
         </header>
 
@@ -55,6 +58,25 @@
             </div>
         </footer>
     </div>
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Audio Settings</h2>
+            <p>Enter your <strong>ElevenLabs</strong> API key to enable AI voice narration.</p>
+            <div class="input-group">
+                <label for="api-key">ElevenLabs API Key</label>
+                <input type="password" id="api-key" placeholder="sk_...">
+            </div>
+            <div class="input-group">
+                <label for="voice-id">Voice ID (Optional)</label>
+                <input type="text" id="voice-id" placeholder="21m00Tcm4TlvDq8ikWAM">
+            </div>
+            <div class="modal-actions">
+                <button id="save-settings" class="primary-btn">Save & Close</button>
+            </div>
+        </div>
+    </div>
+
     <script src="script.js"></script>
 </body>
 </html>

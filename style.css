@@ -111,11 +111,31 @@ canvas {
     transform: translateX(-50%);
     background: rgba(0,0,0,0.6);
     backdrop-filter: blur(10px);
-    padding: 0.5rem 1.5rem;
+    padding: 0.5rem;
     border-radius: 30px;
-    font-size: 1.5rem;
+    font-size: 1.1rem;
     z-index: 5;
     border: 1px solid rgba(255,255,255,0.1);
+    display: flex;
+    gap: 10px;
+    white-space: nowrap;
+}
+
+.hand-tag {
+    padding: 0.3rem 1rem;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+}
+
+.hand-tag.left {
+    border: 1px solid var(--accent);
+    color: #818cf8;
+}
+
+.hand-tag.right {
+    border: 1px solid var(--success);
+    color: var(--success);
 }
 
 .stats-panel {
@@ -187,8 +207,9 @@ canvas {
     100% { transform: scale(1); opacity: 1; }
 }
 
+/* Utility Classes */
 .hidden {
-    display: none;
+    display: none !important;
 }
 
 .info-footer {
@@ -204,8 +225,89 @@ canvas {
     font-size: 0.9rem;
 }
 
-.hint span {
-    background: rgba(255,255,255,0.03);
-    padding: 0.4rem 1rem;
-    border-radius: 20px;
+.header-top {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1.5rem;
+    position: relative;
+}
+
+.icon-btn {
+    background: var(--card-bg);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text);
+    padding: 0.8rem;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1.2rem;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-btn:hover {
+    background: var(--accent);
+    transform: rotate(45deg);
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.8);
+    backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: #1a1e26;
+    padding: 2.5rem;
+    border-radius: 24px;
+    width: 90%;
+    max-width: 450px;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+    text-align: left;
+}
+
+.modal h2 {
+    margin-bottom: 1rem;
+    font-size: 1.8rem;
+}
+
+.input-group {
+    margin: 1.5rem 0;
+}
+
+.input-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.input-group input {
+    width: 100%;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 0.8rem 1rem;
+    border-radius: 10px;
+    color: white;
+    font-size: 1rem;
+}
+
+.modal-actions {
+    margin-top: 2rem;
+}
+
+.modal-actions .primary-btn {
+    width: 100%;
 }
