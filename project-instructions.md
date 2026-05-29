@@ -32,7 +32,7 @@ Gesture Arena is an advanced, AI-powered Rock, Paper, Scissors game running enti
 
 ## 🛡️ Admin Control Center
 A dedicated Admin Terminal is included to manage players and track game analytics.
-*   **URL:** `http://localhost:3000/admin.html`
+*   **URL:** `https://gesture-game-ai.vercel.app/admin.html`
 *   **Default Admin Email:** `admin@gesturearena.com`
 *   **Default Admin Password:** `admin123`
 

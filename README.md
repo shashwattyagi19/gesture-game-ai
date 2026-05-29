@@ -4,13 +4,12 @@ A modern Rock Paper Scissors game powered by Computer Vision (MediaPipe Hands).
 
 ## 🚀 Live Demo & Deployment
 
-This project is ready to be deployed on **Vercel**.
+This project is deployed and actively hosted on **Vercel**.
+
+*   🎮 **Play the Game:** [https://gesture-game-ai.vercel.app](https://gesture-game-ai.vercel.app)
+*   🛡️ **Admin Dashboard:** [https://gesture-game-ai.vercel.app/admin.html](https://gesture-game-ai.vercel.app/admin.html)
 
 1. **GitHub Repository**: [shashwattyagi19/gesture-game-ai](https://github.com/shashwattyagi19/gesture-game-ai)
-2. **Deploy to Vercel**: 
-   - Go to [Vercel Dashboard](https://vercel.com/new).
-   - Import this repository.
-   - Vercel will automatically detect the project as a static site and deploy it.
 
 ## How to Run Locally
 
