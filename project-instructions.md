@@ -1,12 +1,19 @@
 # Gesture Arena - Project Instructions
 
-**Version:** v2.1.0-stable
+**Version:** v3.0.0-stable
 
 ## 🌐 Live Deployment
 The game is publicly playable online at: **[https://gesture-game-ai.vercel.app](https://gesture-game-ai.vercel.app)**
 
 ## 🎮 Overview
-Gesture Arena is an AI-powered Rock, Paper, Scissors game running entirely in the browser. It uses **MediaPipe** for real-time hand gesture recognition and **Supabase** for user authentication, global leaderboards, and database management.
+Gesture Arena is an advanced, AI-powered Rock, Paper, Scissors game running entirely in the browser. It features a robust **Zero-Delay MediaPipe** integration for highly precise, real-time hand gesture recognition. It uses **Supabase** for user authentication, global leaderboards, and database management, alongside **PeerJS (WebRTC)** for instantaneous, peer-to-peer multiplayer video, audio, and gameplay synchronization.
+
+## ⚔️ Multiplayer Features (v3.0.0)
+*   **Peer-to-Peer Synchronization:** Game state and countdowns are instantly synchronized directly between browsers via a robust PeerJS DataConnection, preventing dropped signals and desyncs.
+*   **WebRTC Video & Audio Chat:** Players can see and hear each other in real-time using a Picture-in-Picture webcam feed overlay.
+*   **Live Text Chat:** A frosted-glass chat interface allows players to send instant text messages over the P2P connection during a match.
+*   **Dynamic Nicknames:** Players can set a custom nickname that is transmitted to their opponent over the WebRTC tunnel and displayed in the multiplayer arena.
+*   **Zero-Delay Capture:** MediaPipe sampling is delayed precisely by 150ms after the countdown finishes to guarantee the absolute final frame gesture is captured.
 
 ## 🚀 Setup & Installation
 1. **Prerequisites:** Ensure you have Node.js and npm installed.
