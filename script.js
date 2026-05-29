@@ -69,6 +69,9 @@ const nicknameBtn = document.getElementById('nickname-btn');
 const chatInput = document.getElementById('chat-input');
 const chatSend = document.getElementById('chat-send');
 const chatMessages = document.getElementById('chat-messages');
+const toggleMicBtn = document.getElementById('toggle-mic');
+const toggleCamBtn = document.getElementById('toggle-cam');
+const mediaControls = document.getElementById('media-controls');
 
 let myNickname = localStorage.getItem('gesture_nickname') || 'Player';
 let opponentNickname = 'Opponent';
@@ -88,6 +91,8 @@ let isHost = false;
 let myMoveLocked = null;
 let opponentMoveLocked = null;
 let mpConn = null;
+let localAudioTrack = null;
+let localVideoTrack = null;
 const MAX_ROUNDS_FOR_BAR = 10;
 
 // Supabase State
@@ -307,6 +312,23 @@ function appendChatMessage(sender, text) {
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
+
+// Media Controls Logic
+toggleMicBtn.addEventListener('click', () => {
+    if (localAudioTrack) {
+        localAudioTrack.enabled = !localAudioTrack.enabled;
+        toggleMicBtn.innerText = localAudioTrack.enabled ? '🎤' : '🔇';
+        toggleMicBtn.classList.toggle('disabled', !localAudioTrack.enabled);
+    }
+});
+
+toggleCamBtn.addEventListener('click', () => {
+    if (localVideoTrack) {
+        localVideoTrack.enabled = !localVideoTrack.enabled;
+        toggleCamBtn.innerText = localVideoTrack.enabled ? '📷' : '🚫';
+        toggleCamBtn.classList.toggle('disabled', !localVideoTrack.enabled);
+    }
+});
 
 // Modal Toggle Utilities
 function showModal(modal) { modal.classList.remove('hidden'); }
@@ -1143,10 +1165,16 @@ async function setupWebRTC(roomId, isHost) {
             clearInterval(checkStream);
             
             // 2. Combine MediaPipe's Video stream with our Audio track
-            const videoTrack = videoElement.srcObject.getVideoTracks()[0];
-            const tracks = [videoTrack];
-            if (audioTrack) tracks.push(audioTrack);
+            localVideoTrack = videoElement.srcObject.getVideoTracks()[0];
+            const tracks = [localVideoTrack];
+            if (audioTrack) {
+                localAudioTrack = audioTrack;
+                tracks.push(localAudioTrack);
+            }
             const combinedStream = new MediaStream(tracks);
+            
+            // Show Media Controls
+            mediaControls.classList.remove('hidden');
             
             const peerId = isHost ? `gesture-arena-${roomId}-host` : `gesture-arena-${roomId}-guest`;
             const peer = new Peer(peerId);

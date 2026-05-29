@@ -62,6 +62,11 @@
                 <div class="video-container" id="video-wrapper">
                     <video id="input_video" autoplay playsinline muted></video>
                     <video id="opponent_video" autoplay playsinline class="hidden"></video>
+                    
+                    <div class="media-controls hidden" id="media-controls">
+                        <button class="media-btn" id="toggle-mic" title="Toggle Mic">🎤</button>
+                        <button class="media-btn" id="toggle-cam" title="Toggle Camera">📷</button>
+                    </div>
                     <canvas id="output_canvas" width="640" height="480"></canvas>
                     <div id="countdown" class="countdown hidden">
                         <span class="countdown-number">3</span>
