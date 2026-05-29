@@ -1,49 +1,73 @@
-tep;                int a_val = A[curr_i] - '0';        int b_val = B[curr_j] - '0';        int gain = a_val * b_val;                prefix_score[step + 1] = prefix_score[step] + gain;        if (a_val == b_val) {            curr_i = (curr_i + 1) % N;        } else {            curr_j = (curr_j + 1) % N;        }        step++;    }    int start_step = visited_step[curr_i * N + curr_j];    int cycle_len = step - start_step;    ll score_before_cycle = prefix_score[start_step];    ll score_per_cycle = prefix_score[step] - prefix_score[start_step];    // Process Queries    for (int q = 0; q < Q; q++) {        ll K;        scanf("%lld", &K);        if (K <= step) {            printf("%lld%c", prefix_score[K], (q == Q - 1 ? '\n' : ' '));        } else {            ll remaining_K = K - start_step;            ll num_cycles = remaining_K / cycle_len;            int remainder = remaining_K % cycle_len;            ll total_score = score_before_cycle + (num_cycles * score_per_cycle) +                              (prefix_score[start_step + remainder] - prefix_score[start_step]);                        printf("%lld%c", total_score, (q == Q - 1 ? 'const videoElement = document.getElementById('input_video');
+const videoElement = document.getElementById('input_video');
 const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
 const startBtn = document.getElementById('start-btn');
 const countdownEl = document.getElementById('countdown');
+const countdownNum = countdownEl.querySelector('.countdown-number');
 const resultBadge = document.getElementById('result-badge');
+const resultText = resultBadge.querySelector('.result-text');
 const playerMoveIcon = document.getElementById('player-move');
 const cpuMoveIcon = document.getElementById('computer-move');
-const playerScoreEl = document.getElementById('player-score');
-const cpuScoreEl = document.getElementById('cpu-score');
+const playerScoreEl = document.getElementById('player-score-display');
+const cpuScoreEl = document.getElementById('cpu-score-display');
+const playerBar = document.getElementById('player-bar');
+const cpuBar = document.getElementById('cpu-bar');
 const indicator = document.getElementById('gesture-indicator');
+const roundNumEl = document.getElementById('round-num');
+const vsBadge = document.getElementById('vs-badge');
+const playerCard = document.getElementById('player-card');
+const cpuCard = document.getElementById('cpu-card');
+const streakContainer = document.getElementById('streak-container');
+const streakCount = document.getElementById('streak-count');
+
+// Supabase DOM Elements
+const leaderboardBtn = document.getElementById('leaderboard-btn');
+const leaderboardModal = document.getElementById('leaderboard-modal');
+const closeLeaderboardModalBtn = document.getElementById('close-leaderboard-modal');
+const leaderboardTable = document.getElementById('leaderboard-table');
+const leaderboardBody = document.getElementById('leaderboard-body');
+const leaderboardLoading = document.getElementById('leaderboard-loading');
+const leaderboardNoDb = document.getElementById('leaderboard-no-db');
+
+const authBtn = document.getElementById('auth-btn');
+const authBtnIcon = document.getElementById('auth-btn-icon');
+const authModal = document.getElementById('auth-modal');
+const closeAuthModalBtn = document.getElementById('close-auth-modal');
+const authTitle = document.getElementById('auth-title');
+const authDesc = document.getElementById('auth-desc');
+const authForm = document.getElementById('auth-form');
+const authUsernameGroup = document.querySelector('.id-username-group');
+const authUsername = document.getElementById('auth-username');
+const authEmail = document.getElementById('auth-email');
+const authPassword = document.getElementById('auth-password');
+const authError = document.getElementById('auth-error');
+const authSuccess = document.getElementById('auth-success');
+const authSubmitBtn = document.getElementById('auth-submit-btn');
+const authSubmitText = document.getElementById('auth-submit-text');
+const authToggleBtn = document.getElementById('auth-toggle-btn');
+const googleSigninBtn = document.getElementById('google-signin-btn');
 
 let isGamePlaying = false;
 let currentGesture = 'Unknown';
 let playerScore = 0;
-let cpuScore = 0;clude <string.h>
+let cpuScore = 0;
+let roundNumber = 1;
+let winStreak = 0;
+const MAX_ROUNDS_FOR_BAR = 10;
 
-typedef long long ll;
+// Supabase State
+let db = null;
+let userSession = null;
+let userProfile = null;
+let isSignUpMode = false;
 
-// State structure to track visited rotations
-typedef struct {
-    int next_i, next_j;
-        int added_score;
-        } State;
+// ElevenLabs Config
+const config = {
+    apiKey: localStorage.getItem('elevenlabs_api_key') || '',
+    voiceId: localStorage.getItem('elevenlabs_voice_id') || '21m00Tcm4TlvDq8ikWAM'
+};
 
-        void solve() {
-            int N, Q;
-                if (scanf("%d %d", &N, &Q) != 2) return;
-
-                    char *A = (char *)malloc(N + 1);
-                        char *B = (char *)malloc(N + 1);
-                            scanf("%s %s", A, B);
-
-                                // To track when a state (i, j) was first visited
-                                    // Using a 1D array to represent 2D (i * N + j)
-                                        int *visited_step = (int *)malloc((ll)N * N * sizeof(int));
-                                            ll *prefix_score = (ll *)malloc(((ll)N * N + 1) * sizeof(ll));
-                                                
-                                                    for (ll i = 0; i < (ll)N * N; i++) visited_step[i] = -1;
-
-                                                        int curr_i = 0, curr_j = 0;
-                                                            int step = 0;
-                                                                prefix_score[0] = 0;
-
-                                                                    // Simulation to find the cycle
-                                                                        
+// Configurations run seamlessly using values stored in localStorage or defaults.
 
 const GESTURE_ICONS = {
     'Rock': '✊',
@@ -55,53 +79,86 @@ const GESTURE_ICONS = {
 function onResults(results) {
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-    
+
+    let detectedGestures = [];
+
     // Draw landmarks
-    if (results.multiHandLandmarks) {
-        for (const landmarks of results.multiHandLandmarks) {
-            drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#4f46e5', lineWidth: 5});
-            drawLandmarks(canvasCtx, landmarks, {color: '#ffffff', lineWidth: 2, radius: 4});
-            
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        results.multiHandLandmarks.forEach((landmarks, index) => {
+            const handedness = results.multiHandedness[index].label;
+            const color = handedness === 'Left' ? '#818cf8' : '#22c55e';
+
+            drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: color, lineWidth: 4 });
+            drawLandmarks(canvasCtx, landmarks, { color: '#ffffff', lineWidth: 1.5, radius: 3 });
+
             // Recognize gesture
-            currentGesture = recognizeGesture(landmarks);
-            updateIndicator(currentGesture);
-        }
+            const gesture = recognizeGesture(landmarks);
+            detectedGestures.push({ gesture, handedness });
+        });
+
+        // Update global state for the game (use the first hand or prioritized hand)
+        currentGesture = detectedGestures[0].gesture;
+        updateIndicators(detectedGestures);
     } else {
         currentGesture = 'Unknown';
-        updateIndicator('Unknown');
+        updateIndicators([]);
     }
     canvasCtx.restore();
 }
 
 function recognizeGesture(landmarks) {
-    // index, middle, ring, pinky
-    const tips = [8, 12, 16, 20];
-    const bases = [6, 10, 14, 18];
-    
-    let extendedFingers = 0;
-    for (let i = 0; i < 4; i++) {
-        if (landmarks[tips[i]].y < landmarks[bases[i]].y) {
-            extendedFingers++;
-        }
-    }
-    
-    // Thumb check (simplified)
-    const thumbTip = landmarks[4];
-    const thumbBase = landmarks[2];
-    if (Math.abs(thumbTip.x - thumbBase.x) > 0.05) {
-        extendedFingers++;
-    }
+    // Helper to calculate 3D distance
+    const dist = (p1, p2) => Math.sqrt(
+        Math.pow(p1.x - p2.x, 2) +
+        Math.pow(p1.y - p2.y, 2) +
+        Math.pow(p1.z - p2.z, 2)
+    );
 
-    if (extendedFingers <= 1) return 'Rock';
-    if (extendedFingers === 2) return 'Scissors';
-    if (extendedFingers >= 4) return 'Paper';
+    const wrist = landmarks[0];
+
+    // Finger tips and their corresponding PIP joints
+    const fingerData = [
+        { name: 'index', tip: 8, pip: 6 },
+        { name: 'middle', tip: 12, pip: 10 },
+        { name: 'ring', tip: 16, pip: 14 },
+        { name: 'pinky', tip: 20, pip: 18 }
+    ];
+
+    const extended = fingerData.map(f => {
+        const tipDist = dist(wrist, landmarks[f.tip]);
+        const pipDist = dist(wrist, landmarks[f.pip]);
+        return tipDist > pipDist;
+    });
+
+    // Thumb check: distance from pinky base (17) is a good proxy for extension
+    const thumbTip = landmarks[4];
+    const thumbBase = landmarks[17];
+    const thumbExtended = dist(thumbTip, thumbBase) > dist(landmarks[2], thumbBase) * 1.2;
+
+    const [indexOut, middleOut, ringOut, pinkyOut] = extended;
+    const numExtended = extended.filter(e => e).length + (thumbExtended ? 1 : 0);
+
+    // Rock: All fingers closed
+    if (numExtended <= 1) return 'Rock';
+
+    // Scissors: Specifically Index and Middle fingers
+    if (indexOut && middleOut && !ringOut && !pinkyOut) return 'Scissors';
+
+    // Paper: All or most fingers open
+    if (numExtended >= 4) return 'Paper';
+
+    // Fallback/Intermediate states
     return 'Unknown';
 }
 
-function updateIndicator(gesture) {
-    if (gesture !== 'Unknown') {
+function updateIndicators(handsData) {
+    if (handsData.length > 0) {
         indicator.classList.remove('hidden');
-        indicator.innerText = GESTURE_ICONS[gesture] + ' ' + gesture;
+        indicator.innerHTML = handsData.map(h =>
+            `<span class="hand-tag ${h.handedness === 'Left' ? 'left' : 'right'}">
+                ${h.handedness}: ${GESTURE_ICONS[h.gesture]} ${h.gesture}
+            </span>`
+        ).join(' ');
     } else {
         indicator.classList.add('hidden');
     }
@@ -116,15 +173,15 @@ const hands = new Hands({
 hands.setOptions({
     maxNumHands: 2,
     modelComplexity: 1,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
+    minDetectionConfidence: 0.8,
+    minTrackingConfidence: 0.8,
 });
 
 hands.onResults(onResults);
 
 const camera = new Camera(videoElement, {
     onFrame: async () => {
-        await hands.send({image: videoElement});
+        await hands.send({ image: videoElement });
     },
     width: 640,
     height: 480
@@ -132,66 +189,598 @@ const camera = new Camera(videoElement, {
 
 camera.start();
 
+// Audio Synthesis
+async function speak(text) {
+    // If API Key exists, use ElevenLabs
+    if (config.apiKey) {
+        try {
+            const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${config.voiceId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'xi-api-key': config.apiKey
+                },
+                body: JSON.stringify({
+                    text: text,
+                    model_id: 'eleven_monolingual_v1',
+                    voice_settings: { stability: 0.5, similarity_boost: 0.5 }
+                })
+            });
+
+            if (response.ok) {
+                const audioBlob = await response.blob();
+                const audioUrl = URL.createObjectURL(audioBlob);
+                const audio = new Audio(audioUrl);
+                audio.play();
+                return; // Success, exit
+            }
+        } catch (err) {
+            console.error('ElevenLabs Error:', err);
+        }
+    }
+
+    // Fallback: Use Browser's Free Web Speech API
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); // Interrupt previous speech
+        const utterance = new SpeechSynthesisUtterance(text);
+
+        // Find a nice voice if possible
+        const voices = window.speechSynthesis.getVoices();
+        const preferredVoice = voices.find(v => v.name.includes('Google') || v.name.includes('Female')) || voices[0];
+        if (preferredVoice) utterance.voice = preferredVoice;
+
+        utterance.pitch = 1.1;
+        utterance.rate = 1.0;
+        window.speechSynthesis.speak(utterance);
+    }
+}
+
+// Modal Toggle Utilities
+function showModal(modal) { modal.classList.remove('hidden'); }
+function hideModal(modal) { modal.classList.add('hidden'); }
+
+// Auth Modal Toggles
+authBtn.onclick = () => {
+    if (userSession) {
+        // Simple and clean Logout confirmation
+        if (confirm(`Logged in as "${userProfile?.username || 'User'}". Do you want to sign out?`)) {
+            handleSignOut();
+        }
+    } else {
+        resetAuthForm();
+        showModal(authModal);
+    }
+};
+closeAuthModalBtn.onclick = () => hideModal(authModal);
+
+authToggleBtn.onclick = (e) => {
+    e.preventDefault();
+    isSignUpMode = !isSignUpMode;
+    authTitle.innerText = isSignUpMode ? '👤 Account Sign Up' : '👤 Account Login';
+    authDesc.innerText = isSignUpMode 
+        ? 'Create an account to start saving stats and claim your place on the leaderboard.' 
+        : 'Log in to sync your match stats and compete on the global leaderboard.';
+    authSubmitText.innerText = isSignUpMode ? 'Sign Up' : 'Log In';
+    authToggleBtn.innerText = isSignUpMode ? 'Log In' : 'Sign Up';
+    document.getElementById('auth-toggle-msg').innerHTML = isSignUpMode 
+        ? 'Already have an account? <a href="#" id="auth-toggle-btn">Log In</a>'
+        : 'Don\'t have an account? <a href="#" id="auth-toggle-btn">Sign Up</a>';
+    
+    // Rebind the toggle button since innerHTML replaces it
+    document.getElementById('auth-toggle-btn').onclick = authToggleBtn.onclick;
+    
+    if (isSignUpMode) {
+        authUsernameGroup.classList.remove('hidden');
+        authUsername.required = true;
+    } else {
+        authUsernameGroup.classList.add('hidden');
+        authUsername.required = false;
+    }
+    clearAuthAlerts();
+};
+
+function resetAuthForm() {
+    authForm.reset();
+    isSignUpMode = false;
+    authTitle.innerText = '👤 Account Login';
+    authDesc.innerText = 'Log in to sync your match stats and compete on the global leaderboard.';
+    authSubmitText.innerText = 'Log In';
+    authUsernameGroup.classList.add('hidden');
+    authUsername.required = false;
+    document.getElementById('auth-toggle-msg').innerHTML = 'Don\'t have an account? <a href="#" id="auth-toggle-btn">Sign Up</a>';
+    document.getElementById('auth-toggle-btn').onclick = authToggleBtn.onclick;
+    clearAuthAlerts();
+}
+
+function clearAuthAlerts() {
+    authError.classList.add('hidden');
+    authSuccess.classList.add('hidden');
+}
+
+// Leaderboard Modal Toggles
+leaderboardBtn.onclick = () => {
+    showModal(leaderboardModal);
+    loadLeaderboard();
+};
+closeLeaderboardModalBtn.onclick = () => hideModal(leaderboardModal);
+
+// Close modals when clicking outside
+window.onclick = (e) => {
+    if (e.target === authModal) hideModal(authModal);
+    if (e.target === leaderboardModal) hideModal(leaderboardModal);
+};
+
+/* ===== Supabase Logic ===== */
+
+async function initSupabase() {
+    const url = localStorage.getItem('supabase_url') || 'https://gndfkzjmvdweffyxstcx.supabase.co';
+    const key = localStorage.getItem('supabase_key') || 'sb_publishable_6aSiNVFx-gInxmupZT1cNA_WPkFmds7';
+
+    if (url && key) {
+        try {
+            // Initialize Supabase Client
+            db = supabase.createClient(url, key);
+            
+            // Check current active session
+            const { data: { session } } = await db.auth.getSession();
+            handleAuthStateChange(session);
+
+            // Listen to auth events
+            db.auth.onAuthStateChange((_event, session) => {
+                handleAuthStateChange(session);
+            });
+            console.log('📡 Supabase Initialized Successfully');
+        } catch (err) {
+            console.error('📡 Supabase Init Error:', err);
+            db = null;
+        }
+    } else {
+        db = null;
+        userSession = null;
+        userProfile = null;
+        updateAuthButtonUI();
+        console.log('📡 Supabase is not configured yet');
+    }
+}
+
+async function handleAuthStateChange(session) {
+    userSession = session;
+    if (session) {
+        // Check if user is banned via metadata or ban duration expiration
+        const isBanned = (session.user.banned_until && new Date(session.user.banned_until) > new Date()) || 
+                         session.user.user_metadata?.banned === true;
+                         
+        if (isBanned) {
+            alert("🚫 Your account has been restricted by the Administrator.");
+            // Prevent login loop by signing out
+            if (db) {
+                await db.auth.signOut();
+            }
+            userSession = null;
+            userProfile = null;
+            updateAuthButtonUI();
+            return;
+        }
+
+        await fetchUserProfile(session.user.id);
+    } else {
+        userProfile = null;
+    }
+    updateAuthButtonUI();
+}
+
+async function fetchUserProfile(userId) {
+    if (!db) return;
+    try {
+        const { data, error } = await db
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+
+        if (error) {
+            // Profile not found in table, let's try to create one (upsert it)
+            console.log('Profile not found, creating one...');
+            const defaultUsername = userSession.user.user_metadata?.full_name || 
+                                    userSession.user.user_metadata?.name || 
+                                    userSession.user.email.split('@')[0];
+            const { data: insertedData, error: insertError } = await db
+                .from('profiles')
+                .upsert({
+                    id: userId,
+                    username: defaultUsername,
+                    total_wins: 0,
+                    total_losses: 0,
+                    max_streak: 0
+                }, { onConflict: 'id' })
+                .select()
+                .single();
+
+            if (insertError) throw insertError;
+            userProfile = insertedData;
+        } else {
+            userProfile = data;
+        }
+    } catch (err) {
+        console.error('Error fetching/creating profile:', err);
+        // Fallback profile if table is empty/created slowly/permission denied
+        const defaultUsername = userSession.user.user_metadata?.full_name || 
+                                userSession.user.user_metadata?.name || 
+                                userSession.user.email.split('@')[0];
+        userProfile = { username: defaultUsername, total_wins: 0, total_losses: 0, max_streak: 0 };
+    }
+}
+
+function updateAuthButtonUI() {
+    if (userSession && userProfile) {
+        authBtn.className = 'icon-btn logged-in';
+        authBtn.innerHTML = `<span id="auth-btn-icon"></span> ${userProfile.username}`;
+    } else {
+        authBtn.className = 'icon-btn';
+        authBtn.innerHTML = '<span id="auth-btn-icon">👤</span>';
+    }
+}
+
+// Handle Login / Sign Up Submit
+authForm.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!db) {
+        showAuthAlert(authError, 'Please configure Supabase URL and Anon Key in settings first.');
+        return;
+    }
+
+    clearAuthAlerts();
+    authSubmitBtn.disabled = true;
+    const oldBtnText = authSubmitText.innerText;
+    authSubmitText.innerText = isSignUpMode ? 'Registering...' : 'Signing In...';
+
+    const email = authEmail.value.trim();
+    const password = authPassword.value;
+    const username = authUsername.value.trim();
+
+    try {
+        if (isSignUpMode) {
+            // Sign Up
+            const { data, error } = await db.auth.signUp({
+                email,
+                password,
+                options: {
+                    data: {
+                        username: username || email.split('@')[0]
+                    }
+                }
+            });
+
+            if (error) throw error;
+
+            showAuthAlert(authSuccess, 'Registration successful! You can now log in.');
+            // Switch to login mode
+            setTimeout(() => {
+                authToggleBtn.click();
+                authEmail.value = email;
+            }, 1500);
+        } else {
+            // Log In
+            const { data, error } = await db.auth.signInWithPassword({
+                email,
+                password
+            });
+
+            if (error) throw error;
+
+            showAuthAlert(authSuccess, 'Welcome back! Logged in successfully.');
+            setTimeout(() => {
+                hideModal(authModal);
+            }, 1000);
+        }
+    } catch (err) {
+        console.error('Auth Error:', err);
+        showAuthAlert(authError, err.message || 'An error occurred during authentication.');
+    } finally {
+        authSubmitBtn.disabled = false;
+        authSubmitText.innerText = oldBtnText;
+    }
+};
+
+// Google Sign-In Click Event
+googleSigninBtn.onclick = async () => {
+    if (!db) {
+        showAuthAlert(authError, 'Please configure Supabase URL and Anon Key in settings first.');
+        return;
+    }
+    clearAuthAlerts();
+    try {
+        const { data, error } = await db.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: window.location.origin
+            }
+        });
+        if (error) throw error;
+    } catch (err) {
+        console.error('Google Auth Error:', err);
+        showAuthAlert(authError, err.message || 'An error occurred during Google sign in.');
+    }
+};
+
+async function handleSignOut() {
+    if (!db) return;
+    try {
+        const { error } = await db.auth.signOut();
+        if (error) throw error;
+        userSession = null;
+        userProfile = null;
+        updateAuthButtonUI();
+        alert('Signed out successfully.');
+    } catch (err) {
+        console.error('Sign Out Error:', err);
+    }
+}
+
+function showAuthAlert(element, message) {
+    element.innerText = message;
+    element.classList.remove('hidden');
+}
+
+// Fetch and Render Global Leaderboard rankings
+async function loadLeaderboard() {
+    if (!db) {
+        leaderboardLoading.classList.add('hidden');
+        leaderboardNoDb.classList.remove('hidden');
+        leaderboardTable.classList.add('hidden');
+        return;
+    }
+
+    leaderboardLoading.classList.remove('hidden');
+    leaderboardNoDb.classList.add('hidden');
+    leaderboardTable.classList.add('hidden');
+    leaderboardBody.innerHTML = '';
+
+    try {
+        const { data, error } = await db
+            .from('profiles')
+            .select('*')
+            .order('max_streak', { ascending: false })
+            .limit(10);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+            data.forEach((profile, index) => {
+                const rank = index + 1;
+                const isCurrent = userSession && profile.id === userSession.user.id;
+                
+                const winLossRatio = profile.total_losses > 0 
+                    ? (profile.total_wins / profile.total_losses).toFixed(1)
+                    : profile.total_wins.toFixed(1);
+
+                const row = document.createElement('tr');
+                if (isCurrent) row.className = 'current-user';
+
+                row.innerHTML = `
+                    <td><span class="rank-badge rank-${rank <= 3 ? rank : 'generic'}">${rank}</span></td>
+                    <td>
+                        <div class="player-cell">
+                            <span class="player-avatar">${profile.username.substring(0, 2).toUpperCase()}</span>
+                            <span>${profile.username} ${isCurrent ? '(You)' : ''}</span>
+                        </div>
+                    </td>
+                    <td><strong class="accent">${profile.max_streak}</strong></td>
+                    <td>${profile.total_wins}w / ${profile.total_losses}l <span class="optional-tag">Ratio: ${winLossRatio}</span></td>
+                `;
+                leaderboardBody.appendChild(row);
+            });
+
+            leaderboardLoading.classList.add('hidden');
+            leaderboardTable.classList.remove('hidden');
+        } else {
+            leaderboardBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No records found. Be the first to claim a streak!</td></tr>';
+            leaderboardLoading.classList.add('hidden');
+            leaderboardTable.classList.remove('hidden');
+        }
+    } catch (err) {
+        console.error('Leaderboard Fetch Error:', err);
+        leaderboardBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--danger);">Failed to load leaderboard: ${err.message}</td></tr>`;
+        leaderboardLoading.classList.add('hidden');
+        leaderboardTable.classList.remove('hidden');
+    }
+}
+
+async function logMatchToDatabase(playerMove, cpuMove, result) {
+    if (!db || !userSession) return;
+
+    try {
+        const userId = userSession.user.id;
+
+        // 1. Insert Match Record
+        const { error: matchError } = await db
+            .from('matches')
+            .insert({
+                player_id: userId,
+                player_move: playerMove,
+                cpu_move: cpuMove,
+                result: result,
+                round_number: roundNumber
+            });
+
+        if (matchError) throw matchError;
+
+        // 2. Fetch latest profile stats
+        if (!userProfile) return;
+        
+        let newWins = userProfile.total_wins;
+        let newLosses = userProfile.total_losses;
+        let newMaxStreak = userProfile.max_streak;
+
+        if (result === 'win') {
+            newWins++;
+            if (winStreak > newMaxStreak) {
+                newMaxStreak = winStreak;
+            }
+        } else if (result === 'loss') {
+            newLosses++;
+        }
+
+        // 3. Update Profile stats (using upsert in case profile was not initialized)
+        const { error: profileError } = await db
+            .from('profiles')
+            .upsert({
+                id: userId,
+                username: userProfile.username,
+                total_wins: newWins,
+                total_losses: newLosses,
+                max_streak: newMaxStreak
+            }, { onConflict: 'id' });
+
+        if (profileError) throw profileError;
+
+        // Update local profile state
+        userProfile.total_wins = newWins;
+        userProfile.total_losses = newLosses;
+        userProfile.max_streak = newMaxStreak;
+
+    } catch (err) {
+        console.error('Error logging match to database:', err);
+    }
+}
+
+// Call on startup
+initSupabase();
+
+// Update Score Bars
+function updateScoreBars() {
+    const maxScore = Math.max(playerScore, cpuScore, MAX_ROUNDS_FOR_BAR);
+    playerBar.style.width = `${(playerScore / maxScore) * 100}%`;
+    cpuBar.style.width = `${(cpuScore / maxScore) * 100}%`;
+}
+
 // Game Logic
 async function playGame() {
     if (isGamePlaying) return;
     isGamePlaying = true;
     startBtn.disabled = true;
     resultBadge.classList.add('hidden');
+    streakContainer.classList.add('hidden');
     cpuMoveIcon.innerText = '❓';
-    
+    cpuMoveIcon.classList.remove('reveal');
+    playerMoveIcon.classList.remove('reveal');
+
+    // Activate VS badge
+    vsBadge.classList.add('active');
+
     // Countdown
     countdownEl.classList.remove('hidden');
     for (let i = 3; i > 0; i--) {
-        countdownEl.innerText = i;
-        await new Promise(r => setTimeout(r, 800));
+        countdownNum.innerText = i;
+        // Re-trigger animation
+        countdownNum.style.animation = 'none';
+        countdownNum.offsetHeight; // Force reflow
+        countdownNum.style.animation = '';
+        await new Promise(r => setTimeout(r, 900));
     }
-    countdownEl.innerText = 'GO!';
-    await new Promise(r => setTimeout(r, 400));
+    countdownNum.innerText = 'GO!';
+    countdownNum.style.fontSize = '5rem';
+    await new Promise(r => setTimeout(r, 500));
     countdownEl.classList.add('hidden');
-    
+    countdownNum.style.fontSize = '';
+
+    // Deactivate VS badge
+    vsBadge.classList.remove('active');
+
     // Capture result
     const playerMove = currentGesture;
     const moves = ['Rock', 'Paper', 'Scissors'];
     const cpuMove = moves[Math.floor(Math.random() * 3)];
-    
+
     playerMoveIcon.innerText = GESTURE_ICONS[playerMove];
+    playerMoveIcon.classList.add('reveal');
+
+    // Slight delay before revealing CPU move
+    await new Promise(r => setTimeout(r, 300));
     cpuMoveIcon.innerText = GESTURE_ICONS[cpuMove];
-    
+    cpuMoveIcon.classList.add('reveal');
+
+    await new Promise(r => setTimeout(r, 200));
+
     determineWinner(playerMove, cpuMove);
-    
+
+    // Update round
+    roundNumber++;
+    roundNumEl.innerText = roundNumber;
+
     isGamePlaying = false;
     startBtn.disabled = false;
-    startBtn.innerText = 'Play Again';
+    startBtn.querySelector('.btn-text').innerText = 'PLAY AGAIN';
 }
 
 function determineWinner(player, cpu) {
     resultBadge.classList.remove('hidden');
-    
+
+    // Reset card animations
+    playerCard.classList.remove('win-flash', 'lose-flash');
+    cpuCard.classList.remove('win-flash', 'lose-flash');
+
     if (player === 'Unknown') {
-        resultBadge.innerText = 'Gesture Not Detected!';
-        resultBadge.style.color = 'var(--text-muted)';
+        resultText.innerText = '🤷 Gesture Not Detected';
+        resultText.style.color = 'var(--text-muted)';
+        winStreak = 0;
+        streakContainer.classList.add('hidden');
         return;
     }
-    
+
+    let result = '';
+
     if (player === cpu) {
-        resultBadge.innerText = "IT'S A DRAW!";
-        resultBadge.style.color = 'var(--gold)';
+        resultText.innerText = "🤝 IT'S A DRAW!";
+        resultText.style.color = 'var(--gold)';
+        resultBadge.style.background = 'linear-gradient(135deg, rgba(245, 158, 11, 0.1), transparent)';
+        resultBadge.style.border = '1px solid rgba(245, 158, 11, 0.2)';
+        winStreak = 0;
+        streakContainer.classList.add('hidden');
+        speak("It is a draw!");
+        result = 'draw';
     } else if (
         (player === 'Rock' && cpu === 'Scissors') ||
         (player === 'Paper' && cpu === 'Rock') ||
         (player === 'Scissors' && cpu === 'Paper')
     ) {
-        resultBadge.innerText = 'YOU WIN!';
-        resultBadge.style.color = 'var(--success)';
+        resultText.innerText = '🎉 YOU WIN!';
+        resultText.style.color = 'var(--success)';
+        resultBadge.style.background = 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), transparent)';
+        resultBadge.style.border = '1px solid rgba(34, 197, 94, 0.2)';
         playerScore++;
         playerScoreEl.innerText = playerScore;
+        playerCard.classList.add('win-flash');
+        cpuCard.classList.add('lose-flash');
+
+        // Update streak
+        winStreak++;
+        if (winStreak >= 2) {
+            streakContainer.classList.remove('hidden');
+            streakCount.innerText = winStreak;
+        }
+
+        speak("You win! Congratulations!");
+        result = 'win';
     } else {
-        resultBadge.innerText = 'CPU WINS!';
-        resultBadge.style.color = 'var(--danger)';
+        resultText.innerText = '💻 CPU WINS!';
+        resultText.style.color = 'var(--danger)';
+        resultBadge.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.1), transparent)';
+        resultBadge.style.border = '1px solid rgba(239, 68, 68, 0.2)';
         cpuScore++;
         cpuScoreEl.innerText = cpuScore;
+        cpuCard.classList.add('win-flash');
+        playerCard.classList.add('lose-flash');
+        winStreak = 0;
+        streakContainer.classList.add('hidden');
+        speak("The computer wins this round.");
+        result = 'loss';
     }
+
+    updateScoreBars();
+
+    // Log to Supabase
+    logMatchToDatabase(player, cpu, result);
 }
 
 startBtn.addEventListener('click', playGame);

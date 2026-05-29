@@ -1,0 +1,1614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Arena | Admin Control Center</title>
+    <meta name="description" content="Secure administrative dashboard for managing players, banning users, and auditing matches.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Supabase JS SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        /* ===== Design Tokens (Matching Main UI) ===== */
+        :root {
+            --bg-primary: #06070a;
+            --bg-secondary: #0d0f16;
+            --surface: rgba(255, 255, 255, 0.04);
+            --surface-hover: rgba(255, 255, 255, 0.08);
+            --surface-border: rgba(255, 255, 255, 0.06);
+            --accent: #6366f1;
+            --accent-light: #818cf8;
+            --accent-glow: rgba(99, 102, 241, 0.4);
+            --accent-gradient: linear-gradient(135deg, #6366f1, #8b5cf6, #a78bfa);
+            --text: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #475569;
+            --success: #22c55e;
+            --success-glow: rgba(34, 197, 94, 0.3);
+            --danger: #ef4444;
+            --danger-glow: rgba(239, 68, 68, 0.3);
+            --gold: #f59e0b;
+            --gold-glow: rgba(245, 158, 11, 0.3);
+            --cyan: #06b6d4;
+            --radius-sm: 8px;
+            --radius-md: 14px;
+            --radius-lg: 20px;
+            --radius-xl: 28px;
+            --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.4);
+            --shadow-glow: 0 0 60px rgba(99, 102, 241, 0.15);
+            --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-smooth: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ===== Base Styles ===== */
+        .hidden {
+            display: none !important;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+            display: flex;
+            position: relative;
+        }
+
+        /* ===== Animated Background ===== */
+        .bg-effects {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.25;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .orb-1 {
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, #6366f1, transparent 70%);
+            top: -200px;
+            left: -100px;
+        }
+
+        .orb-2 {
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, #ef4444, transparent 70%);
+            bottom: -150px;
+            right: -100px;
+            animation-delay: -7s;
+        }
+
+        .grid-overlay {
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.01) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.01) 1px, transparent 1px);
+            background-size: 60px 60px;
+            mask-image: radial-gradient(ellipse at center, black 30%, transparent 70%);
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(30px, -30px) scale(1.05); }
+        }
+
+        /* ===== Layout ===== */
+        .admin-container {
+            display: flex;
+            width: 100%;
+            z-index: 1;
+            position: relative;
+        }
+
+        /* Sidebar Styling */
+        .sidebar {
+            width: 260px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--surface-border);
+            display: flex;
+            flex-direction: column;
+            padding: 2rem 1.5rem;
+            position: fixed;
+            height: 100vh;
+            z-index: 10;
+        }
+
+        .logo-group {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 3rem;
+        }
+
+        .logo-icon {
+            font-size: 2rem;
+            background: var(--surface);
+            border: 1px solid var(--surface-border);
+            width: 46px;
+            height: 46px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-md);
+        }
+
+        .logo-text h1 {
+            font-size: 1.15rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-text p {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .nav-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .nav-item button {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: transparent;
+            border: 1px solid transparent;
+            padding: 0.85rem 1rem;
+            border-radius: var(--radius-md);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            text-align: left;
+            transition: all var(--transition-fast);
+        }
+
+        .nav-item button:hover, .nav-item.active button {
+            background: var(--surface);
+            border-color: var(--surface-border);
+            color: var(--text);
+        }
+
+        .nav-item.active button {
+            color: var(--accent-light);
+            border-color: rgba(99, 102, 241, 0.2);
+            background: linear-gradient(90deg, rgba(99, 102, 241, 0.08), transparent);
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--surface-border);
+            padding-top: 1.5rem;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            margin-left: 260px;
+            padding: 2.5rem;
+            min-height: 100vh;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2.5rem;
+        }
+
+        .page-title h2 {
+            font-size: 1.8rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .page-title p {
+            color: var(--text-secondary);
+            font-size: 0.88rem;
+            margin-top: 2px;
+        }
+
+        .quick-actions {
+            display: flex;
+            gap: 1rem;
+        }
+
+        /* Buttons */
+        .btn {
+            background: var(--surface);
+            border: 1px solid var(--surface-border);
+            color: var(--text);
+            padding: 0.65rem 1.25rem;
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all var(--transition-fast);
+        }
+
+        .btn:hover {
+            background: var(--surface-hover);
+            border-color: var(--text-secondary);
+        }
+
+        .btn-primary {
+            background: var(--accent-gradient);
+            border: none;
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.2);
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 4px 20px var(--accent-glow);
+            transform: translateY(-1px);
+        }
+
+        /* Warning Banner */
+        .security-banner {
+            background: linear-gradient(90deg, rgba(239, 68, 68, 0.08), rgba(245, 158, 11, 0.04));
+            border: 1px solid rgba(239, 68, 68, 0.15);
+            border-radius: var(--radius-md);
+            padding: 1rem 1.5rem;
+            margin-bottom: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .banner-icon {
+            font-size: 1.5rem;
+            animation: pulse-danger 2s infinite;
+        }
+
+        @keyframes pulse-danger {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .banner-text h4 {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: #fca5a5;
+        }
+
+        .banner-text p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--surface-border);
+            padding: 1.5rem;
+            border-radius: var(--radius-lg);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+            transition: all var(--transition-fast);
+        }
+
+        .stat-card:hover {
+            border-color: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .stat-card::after {
+            content: '';
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            top: -20px;
+            right: -20px;
+            filter: blur(40px);
+            opacity: 0.1;
+            z-index: 0;
+        }
+
+        .stat-card.blue::after { background: #6366f1; }
+        .stat-card.green::after { background: #22c55e; }
+        .stat-card.red::after { background: #ef4444; }
+        .stat-card.gold::after { background: #f59e0b; }
+
+        .stat-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 0.5rem;
+            z-index: 1;
+        }
+
+        .stat-value {
+            font-size: 2.2rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 0.25rem;
+            z-index: 1;
+        }
+
+        .stat-desc {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            z-index: 1;
+        }
+
+        /* Glassmorphic Table Card */
+        .card {
+            background: var(--surface);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--surface-border);
+            border-radius: var(--radius-lg);
+            padding: 1.75rem;
+            box-shadow: var(--shadow-card);
+            margin-bottom: 2rem;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-title h3 {
+            font-size: 1.15rem;
+            font-weight: 700;
+        }
+
+        .card-title p {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            margin-top: 1px;
+        }
+
+        .search-bar {
+            position: relative;
+            max-width: 300px;
+            width: 100%;
+        }
+
+        .search-bar input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--surface-border);
+            padding: 0.6rem 1rem 0.6rem 2.2rem;
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-size: 0.85rem;
+            font-family: inherit;
+            outline: none;
+            transition: all var(--transition-fast);
+        }
+
+        .search-bar input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .search-bar::before {
+            content: '🔍';
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        /* Tables */
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 1rem;
+            font-size: 0.88rem;
+        }
+
+        th {
+            font-weight: 700;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--surface-border);
+            text-transform: uppercase;
+            font-size: 0.72rem;
+            letter-spacing: 1px;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+            transition: background var(--transition-fast);
+        }
+
+        tbody tr:hover {
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 10px;
+            border-radius: 100px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+        }
+
+        .badge-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .badge-warn {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--gold);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+
+        /* Avatar cells */
+        .user-cell {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--surface-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .user-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .user-name {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .user-email {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        /* Action Buttons */
+        .action-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-action {
+            background: transparent;
+            border: 1px solid var(--surface-border);
+            color: var(--text-secondary);
+            padding: 4px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 600;
+            font-family: inherit;
+            transition: all var(--transition-fast);
+        }
+
+        .btn-action:hover {
+            color: var(--text);
+            background: var(--surface);
+        }
+
+        .btn-ban {
+            border-color: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+        }
+
+        .btn-ban:hover {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+
+        .btn-unban {
+            border-color: rgba(34, 197, 94, 0.2);
+            color: #86efac;
+        }
+
+        .btn-unban:hover {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
+            border-color: var(--success);
+        }
+
+        .btn-delete {
+            border-color: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+        }
+
+        .btn-delete:hover {
+            background: var(--danger);
+            color: white;
+            border-color: var(--danger);
+        }
+
+        /* Timeline / Activity Logs */
+        .timeline {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .timeline-item {
+            display: flex;
+            gap: 1rem;
+            position: relative;
+        }
+
+        .timeline-item:not(:last-child)::before {
+            content: '';
+            position: absolute;
+            width: 2px;
+            background: var(--surface-border);
+            top: 24px;
+            bottom: -16px;
+            left: 11px;
+        }
+
+        .timeline-badge {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--bg-secondary);
+            border: 2px solid var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            z-index: 1;
+        }
+
+        .timeline-badge.win { border-color: var(--success); }
+        .timeline-badge.loss { border-color: var(--danger); }
+        .timeline-badge.draw { border-color: var(--gold); }
+
+        .timeline-content {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.01);
+            border: 1px solid var(--surface-border);
+            padding: 0.85rem 1.25rem;
+            border-radius: var(--radius-md);
+        }
+
+        .timeline-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.25rem;
+        }
+
+        .timeline-user {
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+
+        .timeline-time {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+        }
+
+        .timeline-desc {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+        }
+
+        .timeline-desc strong {
+            color: var(--text);
+        }
+
+        /* Settings Card Input Groups */
+        .config-form .input-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .config-form .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .config-form label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .config-form input {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--surface-border);
+            padding: 0.75rem 1rem;
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.88rem;
+            outline: none;
+            transition: all var(--transition-fast);
+        }
+
+        .config-form input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        /* Loading Spinner overlay */
+        .spinner-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(6, 7, 10, 0.8);
+            backdrop-filter: blur(6px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            z-index: 100;
+            border-radius: var(--radius-lg);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity var(--transition-fast);
+        }
+
+        .spinner-overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--surface-border);
+            border-top: 3px solid var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .spinner-text {
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+        }
+
+        /* Connection Check Overlay */
+        .setup-screen {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-primary);
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 1.5rem;
+        }
+
+        .setup-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--surface-border);
+            padding: 2.5rem;
+            border-radius: var(--radius-xl);
+            max-width: 460px;
+            width: 100%;
+            box-shadow: var(--shadow-card), var(--shadow-glow);
+        }
+
+        .setup-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .setup-logo {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            display: inline-block;
+        }
+
+        .setup-header h2 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin-bottom: 0.25rem;
+        }
+
+        .setup-header p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+            padding: 0.75rem 1rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.8rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.4;
+        }
+
+        .optional {
+            color: var(--text-muted);
+            font-weight: 400;
+            font-size: 0.7rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- Animated Background -->
+    <div class="bg-effects">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="grid-overlay"></div>
+    </div>
+
+    <!-- Connection Setup Screen -->
+    <div id="setup-screen" class="setup-screen">
+        <div class="setup-card">
+            <div class="setup-header">
+                <span class="setup-logo">🛡️</span>
+                <h2>Admin Login</h2>
+                <p>Enter your master credentials to access the console</p>
+            </div>
+            <div id="setup-error" class="alert-error hidden"></div>
+            <form id="login-form" class="config-form">
+                <div class="input-group" style="margin-bottom: 1.25rem;">
+                    <label for="admin-email">Admin Email</label>
+                    <input type="email" id="admin-email" placeholder="admin@gesturearena.com" required>
+                </div>
+                <div class="input-group" style="margin-bottom: 1.25rem;">
+                    <label for="admin-password">Password</label>
+                    <input type="password" id="admin-password" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 0.8rem;">
+                    Secure Login
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="admin-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo-group">
+                <div class="logo-icon">🎮</div>
+                <div class="logo-text">
+                    <h1>GESTURE <span class="accent" style="background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">ARENA</span></h1>
+                    <p>Admin Terminal</p>
+                </div>
+            </div>
+
+            <nav>
+                <ul class="nav-list">
+                    <li class="nav-item active" data-tab="overview">
+                        <button>📊 Overview</button>
+                    </li>
+                    <li class="nav-item" data-tab="users">
+                        <button>👥 Player Management</button>
+                    </li>
+                    <li class="nav-item" data-tab="activity">
+                        <button>📜 Match Activity Logs</button>
+                    </li>
+                    <li class="nav-item" data-tab="config">
+                        <button>⚙️ Database Config</button>
+                    </li>
+                </ul>
+            </nav>
+
+            <div class="sidebar-footer">
+                <p>Logged in locally</p>
+                <p style="margin-top: 4px; font-weight: 600;"><a href="index.html" style="color: var(--accent-light); text-decoration: none;">🎮 Back to Game</a></p>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="main-content">
+            <!-- Security Warning -->
+            <div class="security-banner">
+                <span class="banner-icon">🚨</span>
+                <div class="banner-text">
+                    <h4>Security Warning: Local Administration Only</h4>
+                    <p>This dashboard operates using the Supabase <strong>Service Role Key</strong> which bypasses Row Level Security (RLS). Keep this dashboard restricted to localhost and never expose the service key publicly.</p>
+                </div>
+            </div>
+
+            <!-- Page Header -->
+            <div class="header-top">
+                <div class="page-title">
+                    <h2 id="current-tab-title">Overview Dashboard</h2>
+                    <p id="current-tab-desc">High-level view of your player database and game telemetry.</p>
+                </div>
+                <div class="quick-actions">
+                    <button class="btn" id="refresh-all-btn">🔄 Refresh Data</button>
+                </div>
+            </div>
+
+            <!-- TAB 1: OVERVIEW -->
+            <section id="tab-overview" class="tab-pane">
+                <div class="stats-grid">
+                    <div class="stat-card blue">
+                        <span class="stat-label">Total Registered</span>
+                        <span class="stat-value" id="stat-total-users">0</span>
+                        <span class="stat-desc">Players signed up</span>
+                    </div>
+                    <div class="stat-card green">
+                        <span class="stat-label">Total Matches</span>
+                        <span class="stat-value" id="stat-total-matches">0</span>
+                        <span class="stat-desc">Logged matches played</span>
+                    </div>
+                    <div class="stat-card gold">
+                        <span class="stat-label">Highest Streak</span>
+                        <span class="stat-value" id="stat-max-streak">0</span>
+                        <span class="stat-desc">Legendary win streak record</span>
+                    </div>
+                    <div class="stat-card red">
+                        <span class="stat-label">Banned Players</span>
+                        <span class="stat-value" id="stat-banned-users">0</span>
+                        <span class="stat-desc">Accounts restricted</span>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 1.5rem;">
+                    <!-- Top Players -->
+                    <div class="card" style="position: relative;">
+                        <div class="spinner-overlay" id="top-players-spinner">
+                            <div class="spinner"></div>
+                            <span class="spinner-text">Updating list...</span>
+                        </div>
+                        <div class="card-header">
+                            <div class="card-title">
+                                <h3>🏆 Top Streaks</h3>
+                                <p>Leaderboard players ranked by max consecutive wins</p>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Rank</th>
+                                        <th>Player</th>
+                                        <th>Max Streak</th>
+                                        <th>Stats (W / L)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="top-players-body">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Recent Match Activity -->
+                    <div class="card" style="position: relative;">
+                        <div class="spinner-overlay" id="recent-activity-spinner">
+                            <div class="spinner"></div>
+                            <span class="spinner-text">Auditing logs...</span>
+                        </div>
+                        <div class="card-header">
+                            <div class="card-title">
+                                <h3>⚡ Live Match Audits</h3>
+                                <p>Real-time game results feed</p>
+                            </div>
+                        </div>
+                        <div class="timeline" id="recent-activity-timeline" style="max-height: 380px; overflow-y: auto; padding-right: 0.5rem;">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: PLAYER MANAGEMENT -->
+            <section id="tab-users" class="tab-pane hidden">
+                <div class="card" style="position: relative; min-height: 400px;">
+                    <div class="spinner-overlay" id="users-spinner">
+                        <div class="spinner"></div>
+                        <span class="spinner-text">Syncing user database...</span>
+                    </div>
+                    <div class="card-header">
+                        <div class="card-title">
+                            <h3>👥 Database Players Directory</h3>
+                            <p>Full control list of auth credentials and game profiles</p>
+                        </div>
+                        <div class="search-bar">
+                            <input type="text" id="user-search-input" placeholder="Search by name, email, or ID...">
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Player Info</th>
+                                    <th>User ID</th>
+                                    <th>Status</th>
+                                    <th>Match Stats</th>
+                                    <th>Streak</th>
+                                    <th>Auth Details</th>
+                                    <th>Administrative Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: MATCH ACTIVITY LOGS -->
+            <section id="tab-activity" class="tab-pane hidden">
+                <div class="card" style="position: relative; min-height: 400px;">
+                    <div class="spinner-overlay" id="logs-spinner">
+                        <div class="spinner"></div>
+                        <span class="spinner-text">Fetching historical activity...</span>
+                    </div>
+                    <div class="card-header">
+                        <div class="card-title">
+                            <h3>📜 Global Match Feed</h3>
+                            <p>All recorded game logs saved in the database</p>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Player</th>
+                                    <th>Player Move</th>
+                                    <th>CPU Move</th>
+                                    <th>Result</th>
+                                    <th>Round</th>
+                                    <th>Record ID</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logs-table-body">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: DATABASE CONFIG -->
+            <section id="tab-config" class="tab-pane hidden">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <h3>⚙️ Connection Configuration</h3>
+                            <p>Verify or change the environmental endpoints of your dashboard</p>
+                        </div>
+                    </div>
+                    <form id="config-form" class="config-form">
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label for="config-url">Supabase Project URL</label>
+                                <input type="text" id="config-url" placeholder="https://your-project.supabase.co">
+                            </div>
+                            <div class="input-group">
+                                <label for="config-service-key">Service Role Secret Key</label>
+                                <input type="password" id="config-service-key" placeholder="eyJhbGciOi...">
+                            </div>
+                        </div>
+                        <h4 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--text-secondary); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">🗣️ Voice Narration Settings</h4>
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label for="config-elevenlabs-key">ElevenLabs API Key</label>
+                                <input type="password" id="config-elevenlabs-key" placeholder="sk_...">
+                            </div>
+                            <div class="input-group">
+                                <label for="config-voice-id">Voice ID <span class="optional">Optional</span></label>
+                                <input type="text" id="config-voice-id" placeholder="21m00Tcm4TlvDq8ikWAM">
+                            </div>
+                        </div>
+                        <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+                            <button type="submit" class="btn btn-primary">Save Settings & Reload</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        // Global State
+        let dbUrl = '';
+        let dbServiceKey = '';
+        let db = null;
+        let users = [];
+        let profiles = [];
+        let matches = [];
+
+        // DOM elements
+        const setupScreen = document.getElementById('setup-screen');
+        const loginForm = document.getElementById('login-form');
+        const setupError = document.getElementById('setup-error');
+        
+        const ADMIN_EMAIL = 'admin@gesturearena.com';
+        const ADMIN_PASS = 'admin123';
+
+        const navItems = document.querySelectorAll('.nav-item');
+        const tabPanes = document.querySelectorAll('.tab-pane');
+        const currentTabTitle = document.getElementById('current-tab-title');
+        const currentTabDesc = document.getElementById('current-tab-desc');
+
+        const refreshAllBtn = document.getElementById('refresh-all-btn');
+        const userSearchInput = document.getElementById('user-search-input');
+
+        // Config tab elements
+        const configForm = document.getElementById('config-form');
+        const configUrl = document.getElementById('config-url');
+        const configServiceKey = document.getElementById('config-service-key');
+        const configElevenLabsKey = document.getElementById('config-elevenlabs-key');
+        const configVoiceId = document.getElementById('config-voice-id');
+
+        // Spinners
+        const topPlayersSpinner = document.getElementById('top-players-spinner');
+        const recentActivitySpinner = document.getElementById('recent-activity-spinner');
+        const usersSpinner = document.getElementById('users-spinner');
+        const logsSpinner = document.getElementById('logs-spinner');
+
+        // Tab titles and descriptions mapping
+        const tabMeta = {
+            overview: { title: "Overview Dashboard", desc: "High-level view of your player database and game telemetry." },
+            users: { title: "Player Directory", desc: "View player authentication accounts, database profiles, and issue administrative bans." },
+            activity: { title: "Match Activity Audit Logs", desc: "Track every round played, moves made by players vs CPU, and match results." },
+            config: { title: "System Parameters", desc: "Manage local database connection configurations safely." }
+        };
+
+        // Navigation Tab switcher
+        navItems.forEach(item => {
+            item.addEventListener('click', () => {
+                const tabId = item.getAttribute('data-tab');
+                
+                // Set active item in menu
+                navItems.forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+
+                // Switch tab content
+                tabPanes.forEach(pane => pane.classList.add('hidden'));
+                document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+
+                // Update headers
+                currentTabTitle.innerText = tabMeta[tabId].title;
+                currentTabDesc.innerText = tabMeta[tabId].desc;
+
+                // Sync data specific to tab if needed
+                if (tabId === 'users') loadUsersTab();
+                if (tabId === 'activity') loadActivityTab();
+                if (tabId === 'overview') loadOverviewTab();
+            });
+        });
+
+        // Initialize application
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Check if admin is already logged in locally
+            const isLoggedIn = sessionStorage.getItem('admin_logged_in');
+            if (isLoggedIn === 'true') {
+                const envData = await fetchEnvVariables();
+                if (envData && envData.SUPABASE_URL && envData.SUPABASE_SERVICE_ROLE_KEY) {
+                    const success = await initSupabaseClient(envData.SUPABASE_URL, envData.SUPABASE_SERVICE_ROLE_KEY);
+                    if (success) return;
+                }
+            }
+            
+            // Show login screen
+            setupScreen.classList.remove('hidden');
+        });
+
+        // Parse environment variables if possible
+        async function fetchEnvVariables() {
+            try {
+                const response = await fetch('/.env');
+                if (!response.ok) return null;
+                const text = await response.text();
+                const vars = {};
+                text.split(/\r?\n/).forEach(line => {
+                    const cleanLine = line.trim();
+                    if (!cleanLine || cleanLine.startsWith('#')) return;
+                    const index = cleanLine.indexOf('=');
+                    if (index > 0) {
+                        const key = cleanLine.substring(0, index).trim();
+                        const value = cleanLine.substring(index + 1).trim();
+                        vars[key] = value;
+                    }
+                });
+                return vars;
+            } catch (err) {
+                console.log('No local environment file accessible directly via HTTP');
+                return null;
+            }
+        }
+
+        // Initialize Supabase Client
+        async function initSupabaseClient(url, serviceKey) {
+            try {
+                // Initialize admin client
+                const client = supabase.createClient(url, serviceKey, {
+                    auth: {
+                        persistSession: false,
+                        autoRefreshToken: false,
+                        detectSessionInUrl: false // Fixes GoTrueClient warning
+                    }
+                });
+
+                // Run a test call to check connectivity
+                // Fetch profiles first to see if service role permissions are working
+                const { data, error } = await client.from('profiles').select('count', { count: 'exact', head: true });
+                if (error) throw error;
+
+                // Success
+                db = client;
+                dbUrl = url;
+                dbServiceKey = serviceKey;
+
+                // Save to local storage for convenience
+                localStorage.setItem('admin_supabase_url', url);
+                localStorage.setItem('admin_supabase_service_key', serviceKey);
+
+                // Populate config forms
+                configUrl.value = url;
+                configServiceKey.value = serviceKey;
+                configElevenLabsKey.value = localStorage.getItem('elevenlabs_api_key') || '';
+                configVoiceId.value = localStorage.getItem('elevenlabs_voice_id') || '21m00Tcm4TlvDq8ikWAM';
+
+                // Close screen
+                setupScreen.classList.add('hidden');
+                
+                // Load data
+                refreshAllData();
+                return true;
+            } catch (err) {
+                console.error('Connection verification failed:', err);
+                setupError.innerText = `Auth Error: ${err.message || 'Check URL and Secret Key settings.'}`;
+                setupError.classList.remove('hidden');
+                setupScreen.classList.remove('hidden');
+                return false;
+            }
+        }
+
+        // Handle Setup Form Submit
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            setupError.classList.add('hidden');
+            
+            const email = document.getElementById('admin-email').value.trim();
+            const pass = document.getElementById('admin-password').value.trim();
+
+            if (email === ADMIN_EMAIL && pass === ADMIN_PASS) {
+                const envData = await fetchEnvVariables();
+                if (envData && envData.SUPABASE_URL && envData.SUPABASE_SERVICE_ROLE_KEY) {
+                    const success = await initSupabaseClient(envData.SUPABASE_URL, envData.SUPABASE_SERVICE_ROLE_KEY);
+                    if (success) {
+                        sessionStorage.setItem('admin_logged_in', 'true');
+                    }
+                } else {
+                    setupError.innerText = "Cannot read .env file for Service Key. Ensure your backend is configured.";
+                    setupError.classList.remove('hidden');
+                }
+            } else {
+                setupError.innerText = "Invalid administrator credentials.";
+                setupError.classList.remove('hidden');
+            }
+        });
+
+        // Handle Config Tab Submit
+        configForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const url = configUrl.value.trim();
+            const key = configServiceKey.value.trim();
+            const elevenLabsKey = configElevenLabsKey.value.trim();
+            const voiceId = configVoiceId.value.trim();
+
+            localStorage.setItem('elevenlabs_api_key', elevenLabsKey);
+            localStorage.setItem('elevenlabs_voice_id', voiceId || '21m00Tcm4TlvDq8ikWAM');
+
+            const success = await initSupabaseClient(url, key);
+            if (success) {
+                alert('All settings saved successfully!');
+            }
+        });
+
+        // Global Refresh action
+        refreshAllBtn.addEventListener('click', () => {
+            refreshAllData();
+        });
+
+        async function refreshAllData() {
+            if (!db) return;
+            const currentTab = document.querySelector('.nav-item.active').getAttribute('data-tab');
+            
+            // Set all spinners to active
+            document.querySelectorAll('.spinner-overlay').forEach(s => s.classList.add('active'));
+
+            try {
+                // Fetch main data parallelly
+                const [authRes, profileRes, matchRes] = await Promise.all([
+                    db.auth.admin.listUsers(),
+                    db.from('profiles').select('*'),
+                    db.from('matches').select('*').order('created_at', { ascending: false })
+                ]);
+
+                if (authRes.error) throw authRes.error;
+                if (profileRes.error) throw profileRes.error;
+                if (matchRes.error) throw matchRes.error;
+
+                users = authRes.data.users || [];
+                profiles = profileRes.data || [];
+                matches = matchRes.data || [];
+
+                // Refresh currently open tab views
+                loadOverviewTab();
+                loadUsersTab();
+                loadActivityTab();
+
+            } catch (err) {
+                console.error('Data refresh error:', err);
+                alert(`Error syncing database: ${err.message}`);
+            } finally {
+                document.querySelectorAll('.spinner-overlay').forEach(s => s.classList.remove('active'));
+            }
+        }
+
+        // ================= Tab Loaders =================
+
+        function loadOverviewTab() {
+            topPlayersSpinner.classList.remove('active');
+            recentActivitySpinner.classList.remove('active');
+
+            // Set metric metrics
+            document.getElementById('stat-total-users').innerText = users.length;
+            document.getElementById('stat-total-matches').innerText = matches.length;
+            
+            const streaks = profiles.map(p => p.max_streak || 0);
+            const highestStreak = streaks.length > 0 ? Math.max(...streaks) : 0;
+            document.getElementById('stat-max-streak').innerText = highestStreak;
+
+            const bannedCount = users.filter(u => u.banned_until && new Date(u.banned_until) > new Date() || u.user_metadata?.banned === true).length;
+            document.getElementById('stat-banned-users').innerText = bannedCount;
+
+            // Populate top players table (Rank top 5)
+            const topBody = document.getElementById('top-players-body');
+            topBody.innerHTML = '';
+
+            const sortedProfiles = [...profiles]
+                .sort((a, b) => (b.max_streak || 0) - (a.max_streak || 0))
+                .slice(0, 5);
+
+            if (sortedProfiles.length > 0) {
+                sortedProfiles.forEach((profile, index) => {
+                    const rank = index + 1;
+                    const wLRatio = profile.total_losses > 0 
+                        ? (profile.total_wins / profile.total_losses).toFixed(1) 
+                        : profile.total_wins.toFixed(1);
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><span class="avatar" style="background: rgba(99,102,241,0.1); width:26px; height:26px; font-size:0.65rem;">${rank}</span></td>
+                        <td>
+                            <div class="user-cell">
+                                <span class="avatar" style="width:24px; height:24px; font-size:0.65rem;">${profile.username.substring(0, 2).toUpperCase()}</span>
+                                <span class="user-name" style="font-size: 0.82rem;">${profile.username}</span>
+                            </div>
+                        </td>
+                        <td><strong style="color: var(--gold);">${profile.max_streak}</strong></td>
+                        <td style="font-size:0.75rem; color: var(--text-secondary);">${profile.total_wins}W / ${profile.total_losses}L <span style="color: var(--text-muted); font-size:0.7rem;">(R: ${wLRatio})</span></td>
+                    `;
+                    topBody.appendChild(tr);
+                });
+            } else {
+                topBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); font-size: 0.8rem;">No player profiles found.</td></tr>';
+            }
+
+            // Populate Recent Activity logs
+            const activityTimeline = document.getElementById('recent-activity-timeline');
+            activityTimeline.innerHTML = '';
+
+            const lastMatches = matches.slice(0, 10);
+            if (lastMatches.length > 0) {
+                lastMatches.forEach(match => {
+                    const profile = profiles.find(p => p.id === match.player_id);
+                    const playerName = profile ? profile.username : (match.player_id.substring(0, 8) + '...');
+                    const date = new Date(match.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    
+                    const item = document.createElement('div');
+                    item.className = 'timeline-item';
+                    
+                    const icons = { 'Rock': '✊', 'Paper': '✋', 'Scissors': '✌️', 'Unknown': '❓' };
+                    const resClass = match.result === 'win' ? 'win' : (match.result === 'loss' ? 'loss' : 'draw');
+                    const resBadge = match.result === 'win' ? '🏆' : (match.result === 'loss' ? '💻' : '🤝');
+
+                    item.innerHTML = `
+                        <div class="timeline-badge ${resClass}">${resBadge}</div>
+                        <div class="timeline-content" style="padding: 0.5rem 0.85rem;">
+                            <div class="timeline-header">
+                                <span class="timeline-user">${playerName}</span>
+                                <span class="timeline-time">${date}</span>
+                            </div>
+                            <p class="timeline-desc" style="font-size:0.78rem;">
+                                Result: <strong>${match.result.toUpperCase()}</strong> (${icons[match.player_move] || '❓'} vs ${icons[match.cpu_move] || '❓'})
+                            </p>
+                        </div>
+                    `;
+                    activityTimeline.appendChild(item);
+                });
+            } else {
+                activityTimeline.innerHTML = '<p style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 2rem 0;">No logged matches yet.</p>';
+            }
+        }
+
+        function loadUsersTab() {
+            usersSpinner.classList.remove('active');
+            renderUserTable(users);
+        }
+
+        // Search filtration
+        userSearchInput.addEventListener('input', () => {
+            const query = userSearchInput.value.toLowerCase().trim();
+            if (!query) {
+                renderUserTable(users);
+                return;
+            }
+
+            const filtered = users.filter(user => {
+                const profile = profiles.find(p => p.id === user.id);
+                const username = profile ? profile.username.toLowerCase() : '';
+                const email = user.email.toLowerCase();
+                const id = user.id.toLowerCase();
+                return username.includes(query) || email.includes(query) || id.includes(query);
+            });
+
+            renderUserTable(filtered);
+        });
+
+        function renderUserTable(targetUsers) {
+            const tbody = document.getElementById('users-table-body');
+            tbody.innerHTML = '';
+
+            if (targetUsers.length > 0) {
+                targetUsers.forEach(user => {
+                    const profile = profiles.find(p => p.id === user.id) || {
+                        username: user.user_metadata?.username || user.email.split('@')[0],
+                        total_wins: 0,
+                        total_losses: 0,
+                        max_streak: 0
+                    };
+
+                    const isBanned = (user.banned_until && new Date(user.banned_until) > new Date()) || user.user_metadata?.banned === true;
+                    
+                    // Format dates
+                    const createdDate = new Date(user.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: '2-digit' });
+                    const lastSignIn = user.last_sign_in_at 
+                        ? new Date(user.last_sign_in_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) 
+                        : 'Never';
+
+                    const tr = document.createElement('tr');
+                    tr.id = `user-row-${user.id}`;
+                    tr.innerHTML = `
+                        <td>
+                            <div class="user-cell">
+                                <span class="avatar">${profile.username.substring(0, 2).toUpperCase()}</span>
+                                <div class="user-info">
+                                    <span class="user-name">${profile.username}</span>
+                                    <span class="user-email">${user.email}</span>
+                                </div>
+                            </div>
+                        </td>
+                        <td style="font-size:0.75rem; color: var(--text-muted); font-family: monospace;">${user.id.substring(0, 12)}...</td>
+                        <td>
+                            <span class="badge ${isBanned ? 'badge-danger' : 'badge-success'}">
+                                ${isBanned ? '🚫 Banned' : '🟢 Active'}
+                            </span>
+                        </td>
+                        <td style="font-size:0.8rem;">${profile.total_wins}W / ${profile.total_losses}L</td>
+                        <td style="font-weight: 700; color: var(--accent-light);">${profile.max_streak}</td>
+                        <td style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.4;">
+                            Created: ${createdDate}<br/>
+                            Logged: ${lastSignIn}
+                        </td>
+                        <td>
+                            <div class="action-group">
+                                ${isBanned 
+                                    ? `<button class="btn-action btn-unban" onclick="toggleBanUser('${user.id}', false)">🟢 Unban</button>`
+                                    : `<button class="btn-action btn-ban" onclick="toggleBanUser('${user.id}', true)">🚫 Ban User</button>`
+                                }
+                                <button class="btn-action btn-delete" onclick="deleteUserAccount('${user.id}', '${profile.username}')">🗑️ Delete</button>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } else {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 3rem 0;">No matching players found in database.</td></tr>';
+            }
+        }
+
+        function loadActivityTab() {
+            logsSpinner.classList.remove('active');
+            const tbody = document.getElementById('logs-table-body');
+            tbody.innerHTML = '';
+
+            if (matches.length > 0) {
+                matches.forEach(match => {
+                    const profile = profiles.find(p => p.id === match.player_id);
+                    const playerName = profile ? profile.username : 'Unknown (Deleted)';
+                    const date = new Date(match.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    
+                    const icons = { 'Rock': '✊ Rock', 'Paper': '✋ Paper', 'Scissors': '✌️ Scissors', 'Unknown': '❓ Unknown' };
+                    const resClass = match.result === 'win' ? 'badge-success' : (match.result === 'loss' ? 'badge-danger' : 'badge-warn');
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="font-size:0.78rem; color: var(--text-secondary);">${date}</td>
+                        <td>
+                            <div class="user-cell">
+                                <span class="avatar" style="width:20px; height:20px; font-size:0.6rem;">${playerName.substring(0, 2).toUpperCase()}</span>
+                                <span style="font-weight: 500;">${playerName}</span>
+                            </div>
+                        </td>
+                        <td>${icons[match.player_move] || match.player_move}</td>
+                        <td>${icons[match.cpu_move] || match.cpu_move}</td>
+                        <td><span class="badge ${resClass}">${match.result.toUpperCase()}</span></td>
+                        <td style="font-weight: 600;">${match.round_number}</td>
+                        <td style="font-size:0.7rem; color: var(--text-muted); font-family: monospace;">${match.id}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } else {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 3rem 0;">No matches recorded in the database.</td></tr>';
+            }
+        }
+
+        // ================= Administrative Actions =================
+
+        // Ban / Unban User
+        window.toggleBanUser = async (userId, shouldBan) => {
+            const promptMsg = shouldBan 
+                ? "Are you sure you want to ban this player? They will be signed out and blocked from logging in."
+                : "Are you sure you want to lift this player's ban?";
+
+            if (!confirm(promptMsg)) return;
+
+            document.getElementById('users-spinner').classList.add('active');
+
+            try {
+                // 1. Set ban_duration in Supabase Auth (876000 hours = 100 years, or 'none')
+                const { error: authError } = await db.auth.admin.updateUserById(
+                    userId,
+                    { 
+                        ban_duration: shouldBan ? '876000h' : 'none',
+                        user_metadata: { banned: shouldBan }
+                    }
+                );
+
+                if (authError) throw authError;
+
+                // 2. We can also store the ban in user profiles if there is an is_banned column,
+                // but since it might not be in their custom schema, we successfully update it in auth metadata!
+                // Let's refresh data to reflect the changes
+                alert(shouldBan ? "Player banned successfully!" : "Player ban lifted successfully!");
+                refreshAllData();
+
+            } catch (err) {
+                console.error('Ban toggle failed:', err);
+                alert(`Operation failed: ${err.message}`);
+                document.getElementById('users-spinner').classList.remove('active');
+            }
+        };
+
+        // Delete User Account & Cascade logs
+        window.deleteUserAccount = async (userId, username) => {
+            if (!confirm(`⚠️ CRITICAL WARNING!\n\nAre you sure you want to permanently delete player "${username}"?\n\nThis will remove their profile, authentication record, and all historical match logs. This action CANNOT be undone.`)) {
+                return;
+            }
+
+            document.getElementById('users-spinner').classList.add('active');
+
+            try {
+                // 1. Delete associated match history logs first to satisfy foreign key constraints
+                const { error: matchesError } = await db
+                    .from('matches')
+                    .delete()
+                    .eq('player_id', userId);
+
+                if (matchesError) console.warn("Failed to delete matches or table empty:", matchesError);
+
+                // 2. Delete player profile row
+                const { error: profileError } = await db
+                    .from('profiles')
+                    .delete()
+                    .eq('id', userId);
+
+                if (profileError) console.warn("Failed to delete profile or row missing:", profileError);
+
+                // 3. Delete user account from Supabase Auth
+                const { error: authError } = await db.auth.admin.deleteUser(userId);
+                if (authError) throw authError;
+
+                alert(`Account "${username}" and all related data have been completely deleted.`);
+                refreshAllData();
+
+            } catch (err) {
+                console.error('Account deletion failed:', err);
+                alert(`Deletion failed: ${err.message}`);
+                document.getElementById('users-spinner').classList.remove('active');
+            }
+        };
+    </script>
+</body>
+</html>

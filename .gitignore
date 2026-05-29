@@ -1,0 +1,15 @@
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# Supabase credential backups
+Supabase Credentials
+supabase-credentials*
+
+# Dependency directories
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
