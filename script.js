@@ -57,6 +57,15 @@ const authSubmitText = document.getElementById('auth-submit-text');
 const authToggleBtn = document.getElementById('auth-toggle-btn');
 const googleSigninBtn = document.getElementById('google-signin-btn');
 
+// Multiplayer DOM Elements
+const mpBtn = document.getElementById('multiplayer-btn');
+const mpModal = document.getElementById('mp-modal');
+const closeMpModalBtn = document.getElementById('close-mp-modal');
+const mpLinkInput = document.getElementById('mp-link-input');
+const mpCopyBtn = document.getElementById('mp-copy-btn');
+const mpStatus = document.getElementById('mp-status');
+const mpLeaveBtn = document.getElementById('mp-leave-btn');
+
 let isGamePlaying = false;
 let currentGesture = 'Unknown';
 let playerScore = 0;
@@ -65,6 +74,12 @@ let roundNumber = 1;
 let winStreak = 0;
 let playerHistory = [];
 let shieldActive = false;
+let gameMode = 'ai'; // 'ai' or 'mp'
+let mpChannel = null;
+let roomId = null;
+let isHost = false;
+let myMoveLocked = null;
+let opponentMoveLocked = null;
 const MAX_ROUNDS_FOR_BAR = 10;
 
 // Supabase State
@@ -358,6 +373,13 @@ async function initSupabase() {
         userProfile = null;
         updateAuthButtonUI();
         console.log('📡 Supabase is not configured yet');
+    }
+
+    // Multiplayer Auto-Join
+    const urlParams = new URLSearchParams(window.location.search);
+    const room = urlParams.get('room');
+    if (room && db) {
+        joinMultiplayerRoom(room, false);
     }
 }
 
@@ -687,6 +709,17 @@ function updateScoreBars() {
 // Game Logic
 async function playGame() {
     if (isGamePlaying) return;
+    if (gameMode === 'mp') {
+        if (!isHost) {
+            alert("Waiting for the host to start the game!");
+            return;
+        }
+        mpChannel.send({ type: 'broadcast', event: 'start_sync', payload: {} });
+    }
+    triggerCountdownAndPlay();
+}
+
+async function triggerCountdownAndPlay() {
     isGamePlaying = true;
     startBtn.disabled = true;
     resultBadge.classList.add('hidden');
@@ -719,40 +752,75 @@ async function playGame() {
 
     // Capture result
     const playerMove = currentGesture;
-    const moves = ['Rock', 'Paper', 'Scissors'];
-    let cpuMove = moves[Math.floor(Math.random() * 3)];
 
-    // Adaptive AI logic
-    if (playerHistory.length >= 3 && playerMove !== 'Unknown') {
-        const lastThree = playerHistory.slice(-3);
-        if (lastThree[0] === lastThree[1] && lastThree[1] === lastThree[2]) {
-            // Player is spamming the same move, counter it!
-            const spamMove = lastThree[0];
-            if (spamMove === 'Rock') cpuMove = 'Paper';
-            else if (spamMove === 'Paper') cpuMove = 'Scissors';
-            else if (spamMove === 'Scissors') cpuMove = 'Rock';
+    if (gameMode === 'mp') {
+        myMoveLocked = playerMove;
+        playerMoveIcon.innerText = GESTURE_ICONS[playerMove];
+        playerMoveIcon.classList.add('reveal');
+        
+        cpuMoveIcon.innerText = '🔒';
+        cpuMoveIcon.classList.add('reveal');
+        
+        mpChannel.send({ 
+            type: 'broadcast', 
+            event: 'lock_move', 
+            payload: { player: isHost ? 'host' : 'guest', move: playerMove } 
+        });
+        checkMpResult();
+    } else {
+        const moves = ['Rock', 'Paper', 'Scissors'];
+        let cpuMove = moves[Math.floor(Math.random() * 3)];
+
+        // Adaptive AI logic
+        if (playerHistory.length >= 3 && playerMove !== 'Unknown') {
+            const lastThree = playerHistory.slice(-3);
+            if (lastThree[0] === lastThree[1] && lastThree[1] === lastThree[2]) {
+                const spamMove = lastThree[0];
+                if (spamMove === 'Rock') cpuMove = 'Paper';
+                else if (spamMove === 'Paper') cpuMove = 'Scissors';
+                else if (spamMove === 'Scissors') cpuMove = 'Rock';
+            }
         }
+
+        playerMoveIcon.innerText = GESTURE_ICONS[playerMove];
+        playerMoveIcon.classList.add('reveal');
+
+        // Slight delay before revealing CPU move
+        await new Promise(r => setTimeout(r, 300));
+        cpuMoveIcon.innerText = GESTURE_ICONS[cpuMove];
+        cpuMoveIcon.classList.add('reveal');
+
+        await new Promise(r => setTimeout(r, 200));
+
+        determineWinner(playerMove, cpuMove);
+
+        // Update round
+        roundNumber++;
+        roundNumEl.innerText = roundNumber;
+
+        isGamePlaying = false;
+        startBtn.disabled = false;
+        startBtn.querySelector('.btn-text').innerText = 'PLAY AGAIN';
     }
+}
 
-    playerMoveIcon.innerText = GESTURE_ICONS[playerMove];
-    playerMoveIcon.classList.add('reveal');
+function checkMpResult() {
+    if (myMoveLocked && opponentMoveLocked) {
+        setTimeout(() => {
+            cpuMoveIcon.innerText = GESTURE_ICONS[opponentMoveLocked];
+            determineWinner(myMoveLocked, opponentMoveLocked);
+            
+            myMoveLocked = null;
+            opponentMoveLocked = null;
+            
+            roundNumber++;
+            roundNumEl.innerText = roundNumber;
 
-    // Slight delay before revealing CPU move
-    await new Promise(r => setTimeout(r, 300));
-    cpuMoveIcon.innerText = GESTURE_ICONS[cpuMove];
-    cpuMoveIcon.classList.add('reveal');
-
-    await new Promise(r => setTimeout(r, 200));
-
-    determineWinner(playerMove, cpuMove);
-
-    // Update round
-    roundNumber++;
-    roundNumEl.innerText = roundNumber;
-
-    isGamePlaying = false;
-    startBtn.disabled = false;
-    startBtn.querySelector('.btn-text').innerText = 'PLAY AGAIN';
+            isGamePlaying = false;
+            startBtn.disabled = false;
+            startBtn.querySelector('.btn-text').innerText = isHost ? 'PLAY AGAIN' : 'WAITING FOR HOST';
+        }, 500);
+    }
 }
 
 function determineWinner(player, cpu) {
@@ -917,5 +985,76 @@ function openTrophyRoom() {
             <div class="achievement-desc">${ach.desc}</div>
         `;
         achievementsGrid.appendChild(card);
+    });
+}
+
+// Multiplayer Initialization
+mpBtn.addEventListener('click', () => {
+    const newRoomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+    history.pushState(null, '', `?room=${newRoomId}`);
+    joinMultiplayerRoom(newRoomId, true);
+});
+
+closeMpModalBtn.addEventListener('click', () => mpModal.classList.add('hidden'));
+
+mpCopyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(mpLinkInput.value);
+    mpCopyBtn.innerText = "Copied!";
+    setTimeout(() => mpCopyBtn.innerText = "Copy Link", 2000);
+});
+
+mpLeaveBtn.addEventListener('click', () => {
+    window.location.href = window.location.pathname;
+});
+
+function joinMultiplayerRoom(room, host) {
+    if (!db) {
+        alert("Supabase Database connection is required for multiplayer.");
+        return;
+    }
+    isHost = host;
+    roomId = room;
+    gameMode = 'mp';
+    
+    mpModal.classList.remove('hidden');
+    mpLinkInput.value = window.location.origin + window.location.pathname + "?room=" + room;
+    
+    // Set UI
+    document.querySelector('.cpu-card .card-label').innerText = 'OPPONENT';
+    startBtn.querySelector('.btn-text').innerText = isHost ? 'START MATCH' : 'WAITING FOR HOST';
+    
+    // Connect Channel
+    mpChannel = db.channel(`room-${room}`, {
+        config: { broadcast: { self: true } }
+    });
+    
+    mpChannel.on('broadcast', { event: 'player_joined' }, () => {
+        if (isHost) {
+            mpStatus.className = 'mp-status connected';
+            mpStatus.innerHTML = '✅ <span>Opponent Joined!</span>';
+            setTimeout(() => mpModal.classList.add('hidden'), 1500);
+        }
+    });
+
+    mpChannel.on('broadcast', { event: 'start_sync' }, () => {
+        if (!isHost) triggerCountdownAndPlay();
+    });
+
+    mpChannel.on('broadcast', { event: 'lock_move' }, (payload) => {
+        if (payload.payload.player !== (isHost ? 'host' : 'guest')) {
+            opponentMoveLocked = payload.payload.move;
+            checkMpResult();
+        }
+    });
+    
+    mpChannel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+            if (!isHost) {
+                mpStatus.className = 'mp-status connected';
+                mpStatus.innerHTML = '✅ <span>Connected to Room!</span>';
+                setTimeout(() => mpModal.classList.add('hidden'), 1500);
+                mpChannel.send({ type: 'broadcast', event: 'player_joined', payload: {} });
+            }
+        }
     });
 }

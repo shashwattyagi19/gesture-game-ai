@@ -102,10 +102,15 @@
                 </div>
 
                 <!-- Action Area -->
-                <button id="start-btn" class="primary-btn">
-                    <span class="btn-text">START GAME</span>
-                    <span class="btn-glow"></span>
-                </button>
+                <div class="action-buttons">
+                    <button id="start-btn" class="primary-btn">
+                        <span class="btn-text">PLAY AI</span>
+                        <span class="btn-glow"></span>
+                    </button>
+                    <button id="multiplayer-btn" class="secondary-btn" title="Play with a friend">
+                        <span class="btn-text">🌐 1v1 MATCH</span>
+                    </button>
+                </div>
 
                 <div id="result-badge" class="result-badge hidden">
                     <span class="result-text">YOU WIN!</span>
@@ -260,6 +265,28 @@
                     <!-- Injected dynamically -->
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Multiplayer Modal -->
+    <div id="mp-modal" class="modal hidden">
+        <div class="modal-content mp-content text-center">
+            <div class="modal-header">
+                <h2>🌐 Real-Time Multiplayer</h2>
+                <button id="close-mp-modal" class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <p class="modal-desc">Share this exact link with a friend to invite them to your lobby!</p>
+            
+            <div class="mp-link-box">
+                <input type="text" id="mp-link-input" readonly>
+                <button id="mp-copy-btn" class="secondary-btn">Copy Link</button>
+            </div>
+            
+            <div id="mp-status" class="mp-status waiting">
+                <div class="spinner"></div> <span>Waiting for opponent to join...</span>
+            </div>
+            
+            <button id="mp-leave-btn" class="danger-btn hidden mt-3">Leave Room</button>
         </div>
     </div>
 
