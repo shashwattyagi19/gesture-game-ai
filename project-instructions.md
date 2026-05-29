@@ -1,6 +1,9 @@
 # Gesture Arena - Project Instructions
 
-**Version:** v2.0.0-stable
+**Version:** v2.1.0-stable
+
+## 🌐 Live Deployment
+The game is publicly playable online at: **[https://gesture-game-ai.vercel.app](https://gesture-game-ai.vercel.app)**
 
 ## 🎮 Overview
 Gesture Arena is an AI-powered Rock, Paper, Scissors game running entirely in the browser. It uses **MediaPipe** for real-time hand gesture recognition and **Supabase** for user authentication, global leaderboards, and database management.

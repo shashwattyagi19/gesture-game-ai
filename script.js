@@ -313,8 +313,14 @@ window.onclick = (e) => {
 /* ===== Supabase Logic ===== */
 
 async function initSupabase() {
-    const url = localStorage.getItem('supabase_url') || 'https://gndfkzjmvdweffyxstcx.supabase.co';
-    const key = localStorage.getItem('supabase_key') || 'sb_publishable_6aSiNVFx-gInxmupZT1cNA_WPkFmds7';
+    let url = localStorage.getItem('supabase_url') || 'https://gndfkzjmvdweffyxstcx.supabase.co';
+    let key = localStorage.getItem('supabase_key');
+    
+    // Purge the old publishable key if it got stuck in local storage
+    if (!key || !key.startsWith('eyJ')) {
+        key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImduZGZremptdmR3ZWZmeXhzdGN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MTQ5OTUsImV4cCI6MjA5NTI5MDk5NX0.XL3zI1x0k9TC4lR652TUO5QDhxTJcp0yV6u2N-OBM1Q';
+        localStorage.setItem('supabase_key', key);
+    }
 
     if (url && key) {
         try {
@@ -608,9 +614,9 @@ async function logMatchToDatabase(playerMove, cpuMove, result) {
         // 2. Fetch latest profile stats
         if (!userProfile) return;
         
-        let newWins = userProfile.total_wins;
-        let newLosses = userProfile.total_losses;
-        let newMaxStreak = userProfile.max_streak;
+        let newWins = parseInt(userProfile.total_wins) || 0;
+        let newLosses = parseInt(userProfile.total_losses) || 0;
+        let newMaxStreak = parseInt(userProfile.max_streak) || 0;
 
         if (result === 'win') {
             newWins++;
@@ -621,18 +627,30 @@ async function logMatchToDatabase(playerMove, cpuMove, result) {
             newLosses++;
         }
 
-        // 3. Update Profile stats (using upsert in case profile was not initialized)
+        // 3. Update Profile stats (using update to respect RLS)
         const { error: profileError } = await db
             .from('profiles')
-            .upsert({
-                id: userId,
-                username: userProfile.username,
+            .update({
                 total_wins: newWins,
                 total_losses: newLosses,
                 max_streak: newMaxStreak
-            }, { onConflict: 'id' });
+            })
+            .eq('id', userId);
 
-        if (profileError) throw profileError;
+        if (profileError) {
+            console.error('Failed to update profile:', profileError);
+            // Optionally, fallback to upsert if update fails (e.g., if profile doesn't exist)
+            const { error: upsertError } = await db
+                .from('profiles')
+                .upsert({
+                    id: userId,
+                    username: userProfile.username || 'Player',
+                    total_wins: newWins,
+                    total_losses: newLosses,
+                    max_streak: newMaxStreak
+                });
+            if (upsertError) throw upsertError;
+        }
 
         // Update local profile state
         userProfile.total_wins = newWins;
