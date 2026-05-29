@@ -313,6 +313,42 @@ function appendChatMessage(sender, text) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+// Draggable Chat Logic
+const chatBox = document.getElementById('mp-chat');
+const chatHeader = document.querySelector('.chat-header');
+let isDragging = false;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+
+chatHeader.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    const rect = chatBox.getBoundingClientRect();
+    dragOffsetX = e.clientX - rect.left;
+    dragOffsetY = e.clientY - rect.top;
+    chatBox.style.bottom = 'auto';
+    chatBox.style.right = 'auto';
+    chatBox.style.margin = '0';
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    let newX = e.clientX - dragOffsetX;
+    let newY = e.clientY - dragOffsetY;
+    
+    const maxX = window.innerWidth - chatBox.offsetWidth;
+    const maxY = window.innerHeight - chatBox.offsetHeight;
+    
+    newX = Math.max(0, Math.min(newX, maxX));
+    newY = Math.max(0, Math.min(newY, maxY));
+
+    chatBox.style.left = `${newX}px`;
+    chatBox.style.top = `${newY}px`;
+});
+
+document.addEventListener('mouseup', () => {
+    isDragging = false;
+});
+
 // Media Controls Logic
 toggleMicBtn.addEventListener('click', () => {
     if (localAudioTrack) {

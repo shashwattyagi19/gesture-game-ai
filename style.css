@@ -1484,6 +1484,11 @@ canvas {
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 1px;
+    cursor: grab;
+    user-select: none;
+}
+.chat-header:active {
+    cursor: grabbing;
 }
 .chat-messages {
     flex: 1;
