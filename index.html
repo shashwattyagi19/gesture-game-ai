@@ -12,6 +12,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <!-- Confetti Particle System -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <!-- Supabase JS SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -36,6 +38,9 @@
                 </div>
                 <div class="header-actions">
                     <div id="round-badge" class="round-badge">Round <span id="round-num">1</span></div>
+                    <button id="trophy-btn" class="icon-btn" title="Trophy Room & Ranked Status" aria-label="Trophies">
+                        🏅
+                    </button>
                     <button id="leaderboard-btn" class="icon-btn" title="Global Leaderboard" aria-label="Leaderboard">
                         🏆
                     </button>
@@ -222,6 +227,38 @@
                         <!-- Populated dynamically via JS -->
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trophy Room Modal -->
+    <div id="trophy-modal" class="modal hidden">
+        <div class="modal-content trophy-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>🏅 Trophy Room & Rank</h2>
+                <button id="close-trophy-modal" class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <p class="modal-desc" id="trophy-desc">View your competitive rank and unlocked achievements.</p>
+            
+            <div id="trophy-unauth" class="no-db-msg hidden">
+                <span class="alert-icon">👤</span>
+                <p>Log in to view your Ranked Status and save your achievements!</p>
+            </div>
+            
+            <div id="trophy-auth" class="trophy-auth-container hidden">
+                <div class="rank-card" id="rank-card">
+                    <div class="rank-icon" id="rank-icon">🥉</div>
+                    <div class="rank-info">
+                        <span class="rank-title">Current League</span>
+                        <h3 class="rank-name" id="rank-name">Bronze</h3>
+                        <p class="rank-progress" id="rank-progress">Wins: 0</p>
+                    </div>
+                </div>
+                
+                <h3 class="achievements-title">Achievements</h3>
+                <div class="achievements-grid" id="achievements-grid">
+                    <!-- Injected dynamically -->
+                </div>
             </div>
         </div>
     </div>

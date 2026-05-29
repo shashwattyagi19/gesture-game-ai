@@ -1239,3 +1239,104 @@ canvas {
     margin-left: 1em;
 }
 
+/* ===== Trophy Room / Achievements ===== */
+.trophy-content {
+    background: linear-gradient(135deg, #10121a, #1a1e2b);
+}
+
+.rank-card {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-lg);
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.rank-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 100% 50%, rgba(245, 158, 11, 0.1), transparent 70%);
+    pointer-events: none;
+}
+
+.rank-icon {
+    font-size: 3.5rem;
+    filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+}
+
+.rank-title {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-secondary);
+    font-weight: 700;
+}
+
+.rank-name {
+    font-size: 2rem;
+    font-weight: 900;
+    margin: 0.2rem 0;
+    color: var(--gold);
+}
+
+.rank-progress {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.achievements-title {
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+    font-weight: 700;
+}
+
+.achievements-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+    max-height: 300px;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+.achievement-card {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    text-align: center;
+    transition: all var(--transition-fast);
+    opacity: 0.5; /* Default locked state */
+    filter: grayscale(1);
+}
+
+.achievement-card.unlocked {
+    background: var(--surface);
+    border-color: rgba(99, 102, 241, 0.4);
+    opacity: 1;
+    filter: grayscale(0);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.achievement-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.achievement-name {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 0.25rem;
+}
+
+.achievement-desc {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}

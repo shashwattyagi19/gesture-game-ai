@@ -21,6 +21,16 @@ const streakContainer = document.getElementById('streak-container');
 const streakCount = document.getElementById('streak-count');
 
 // Supabase DOM Elements
+const trophyBtn = document.getElementById('trophy-btn');
+const trophyModal = document.getElementById('trophy-modal');
+const closeTrophyModalBtn = document.getElementById('close-trophy-modal');
+const trophyUnauth = document.getElementById('trophy-unauth');
+const trophyAuth = document.getElementById('trophy-auth');
+const rankIcon = document.getElementById('rank-icon');
+const rankName = document.getElementById('rank-name');
+const rankProgress = document.getElementById('rank-progress');
+const achievementsGrid = document.getElementById('achievements-grid');
+
 const leaderboardBtn = document.getElementById('leaderboard-btn');
 const leaderboardModal = document.getElementById('leaderboard-modal');
 const closeLeaderboardModalBtn = document.getElementById('close-leaderboard-modal');
@@ -53,6 +63,8 @@ let playerScore = 0;
 let cpuScore = 0;
 let roundNumber = 1;
 let winStreak = 0;
+let playerHistory = [];
+let shieldActive = false;
 const MAX_ROUNDS_FOR_BAR = 10;
 
 // Supabase State
@@ -708,7 +720,19 @@ async function playGame() {
     // Capture result
     const playerMove = currentGesture;
     const moves = ['Rock', 'Paper', 'Scissors'];
-    const cpuMove = moves[Math.floor(Math.random() * 3)];
+    let cpuMove = moves[Math.floor(Math.random() * 3)];
+
+    // Adaptive AI logic
+    if (playerHistory.length >= 3 && playerMove !== 'Unknown') {
+        const lastThree = playerHistory.slice(-3);
+        if (lastThree[0] === lastThree[1] && lastThree[1] === lastThree[2]) {
+            // Player is spamming the same move, counter it!
+            const spamMove = lastThree[0];
+            if (spamMove === 'Rock') cpuMove = 'Paper';
+            else if (spamMove === 'Paper') cpuMove = 'Scissors';
+            else if (spamMove === 'Scissors') cpuMove = 'Rock';
+        }
+    }
 
     playerMoveIcon.innerText = GESTURE_ICONS[playerMove];
     playerMoveIcon.classList.add('reveal');
@@ -743,8 +767,11 @@ function determineWinner(player, cpu) {
         resultText.style.color = 'var(--text-muted)';
         winStreak = 0;
         streakContainer.classList.add('hidden');
+        shieldActive = false;
         return;
     }
+
+    playerHistory.push(player);
 
     let result = '';
 
@@ -771,6 +798,11 @@ function determineWinner(player, cpu) {
         playerCard.classList.add('win-flash');
         cpuCard.classList.add('lose-flash');
 
+        if (window.confetti) {
+            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+        }
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]); // Haptic win
+
         // Update streak
         winStreak++;
         if (winStreak >= 2) {
@@ -778,21 +810,41 @@ function determineWinner(player, cpu) {
             streakCount.innerText = winStreak;
         }
 
-        speak("You win! Congratulations!");
+        if (winStreak === 3) {
+            shieldActive = true;
+            resultText.innerText = '🎉 YOU WIN! (SHIELD UNLOCKED)';
+            speak("Unstoppable! You have earned a shield!");
+        } else {
+            const winLines = ["You win! Congratulations!", "Great move!", "You got me this time!"];
+            speak(winLines[Math.floor(Math.random() * winLines.length)]);
+        }
         result = 'win';
     } else {
-        resultText.innerText = '💻 CPU WINS!';
-        resultText.style.color = 'var(--danger)';
-        resultBadge.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.1), transparent)';
-        resultBadge.style.border = '1px solid rgba(239, 68, 68, 0.2)';
-        cpuScore++;
-        cpuScoreEl.innerText = cpuScore;
-        cpuCard.classList.add('win-flash');
-        playerCard.classList.add('lose-flash');
-        winStreak = 0;
-        streakContainer.classList.add('hidden');
-        speak("The computer wins this round.");
-        result = 'loss';
+        if (shieldActive) {
+            resultText.innerText = '🛡️ SHIELD SAVED YOUR STREAK!';
+            resultText.style.color = 'var(--cyan)';
+            resultBadge.style.background = 'linear-gradient(135deg, rgba(6, 182, 212, 0.1), transparent)';
+            resultBadge.style.border = '1px solid rgba(6, 182, 212, 0.2)';
+            shieldActive = false; // consume shield
+            speak("Your shield absorbed the impact!");
+            result = 'loss'; // Logged as loss, but streak remains
+        } else {
+            resultText.innerText = '💻 CPU WINS!';
+            resultText.style.color = 'var(--danger)';
+            resultBadge.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.1), transparent)';
+            resultBadge.style.border = '1px solid rgba(239, 68, 68, 0.2)';
+            cpuScore++;
+            cpuScoreEl.innerText = cpuScore;
+            cpuCard.classList.add('win-flash');
+            playerCard.classList.add('lose-flash');
+            winStreak = 0;
+            streakContainer.classList.add('hidden');
+            
+            if (navigator.vibrate) navigator.vibrate(300); // Haptic loss
+            const lossLines = ["The computer wins this round.", "Is that all you've got?", "Better luck next time!", "I am learning your patterns."];
+            speak(lossLines[Math.floor(Math.random() * lossLines.length)]);
+            result = 'loss';
+        }
     }
 
     updateScoreBars();
@@ -802,3 +854,68 @@ function determineWinner(player, cpu) {
 }
 
 startBtn.addEventListener('click', playGame);
+
+// Trophy Room Event Listeners
+trophyBtn.addEventListener('click', openTrophyRoom);
+closeTrophyModalBtn.addEventListener('click', () => trophyModal.classList.add('hidden'));
+
+function openTrophyRoom() {
+    trophyModal.classList.remove('hidden');
+    if (!userProfile) {
+        trophyUnauth.classList.remove('hidden');
+        trophyAuth.classList.add('hidden');
+        return;
+    }
+    
+    trophyUnauth.classList.add('hidden');
+    trophyAuth.classList.remove('hidden');
+    
+    // Calculate Rank
+    const wins = userProfile.total_wins || 0;
+    let rank = 'Bronze';
+    let icon = '🥉';
+    let nextTier = 10;
+    
+    if (wins >= 50) {
+        rank = 'Platinum';
+        icon = '💎';
+        nextTier = 'MAX';
+    } else if (wins >= 25) {
+        rank = 'Gold';
+        icon = '🥇';
+        nextTier = 50;
+    } else if (wins >= 10) {
+        rank = 'Silver';
+        icon = '🥈';
+        nextTier = 25;
+    }
+    
+    rankIcon.innerText = icon;
+    rankName.innerText = rank;
+    rankName.style.color = rank === 'Gold' ? 'var(--gold)' : (rank === 'Silver' ? '#cbd5e1' : (rank === 'Platinum' ? 'var(--cyan)' : '#b45309'));
+    rankProgress.innerText = nextTier === 'MAX' ? `Wins: ${wins} (Max Rank)` : `Wins: ${wins} / ${nextTier} to next rank`;
+    
+    // Calculate Achievements
+    const streak = userProfile.max_streak || 0;
+    const totalPlayed = wins + (userProfile.total_losses || 0);
+    
+    const achievements = [
+        { name: "First Blood", desc: "Win your first match", icon: "🩸", unlocked: wins >= 1 },
+        { name: "Streak Master", desc: "Reach a 3-win streak", icon: "🔥", unlocked: streak >= 3 },
+        { name: "Unstoppable", desc: "Reach a 5-win streak", icon: "🚀", unlocked: streak >= 5 },
+        { name: "Dedicated", desc: "Play 10 matches", icon: "📅", unlocked: totalPlayed >= 10 },
+        { name: "Centurion", desc: "Win 100 matches", icon: "👑", unlocked: wins >= 100 }
+    ];
+    
+    achievementsGrid.innerHTML = '';
+    achievements.forEach(ach => {
+        const card = document.createElement('div');
+        card.className = `achievement-card ${ach.unlocked ? 'unlocked' : ''}`;
+        card.innerHTML = `
+            <div class="achievement-icon">${ach.icon}</div>
+            <div class="achievement-name">${ach.name}</div>
+            <div class="achievement-desc">${ach.desc}</div>
+        `;
+        achievementsGrid.appendChild(card);
+    });
+}
