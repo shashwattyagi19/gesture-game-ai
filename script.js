@@ -716,6 +716,7 @@ async function playGame() {
             return;
         }
         sendSync({ event: 'start_sync' });
+        triggerCountdownAndPlay();
     } else {
         triggerCountdownAndPlay();
     }
@@ -1040,7 +1041,7 @@ function joinMultiplayerRoom(room, host) {
     
     // Connect Channel
     mpChannel = db.channel(`room-${room}`, {
-        config: { broadcast: { self: true } }
+        config: { broadcast: { self: false } }
     });
     
     // WebRTC Camera Sync
