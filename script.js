@@ -767,6 +767,22 @@ async function triggerCountdownAndPlay() {
             payload: { player: isHost ? 'host' : 'guest', move: playerMove } 
         });
         checkMpResult();
+        
+        // Timeout to prevent hanging if opponent disconnects
+        setTimeout(() => {
+            if (isGamePlaying) {
+                console.log("Match timed out waiting for opponent.");
+                cpuMoveIcon.innerText = '❌';
+                resultText.innerText = 'OPPONENT DISCONNECTED';
+                resultBadge.classList.remove('hidden');
+                
+                myMoveLocked = null;
+                opponentMoveLocked = null;
+                isGamePlaying = false;
+                startBtn.disabled = false;
+                startBtn.querySelector('.btn-text').innerText = isHost ? 'START MATCH' : 'WAITING FOR HOST';
+            }
+        }, 8000);
     } else {
         const moves = ['Rock', 'Paper', 'Scissors'];
         let cpuMove = moves[Math.floor(Math.random() * 3)];
@@ -1022,6 +1038,7 @@ function joinMultiplayerRoom(room, host) {
     // Set UI
     document.querySelector('.cpu-card .card-label').innerText = 'OPPONENT';
     startBtn.querySelector('.btn-text').innerText = isHost ? 'START MATCH' : 'WAITING FOR HOST';
+    startBtn.disabled = true; // Wait for opponent to connect
     
     // Connect Channel
     mpChannel = db.channel(`room-${room}`, {
@@ -1038,6 +1055,7 @@ function joinMultiplayerRoom(room, host) {
             mpStatus.className = 'mp-status connected';
             mpStatus.innerHTML = '✅ <span>Opponent Joined!</span>';
             setTimeout(() => mpModal.classList.add('hidden'), 1500);
+            startBtn.disabled = false;
         }
     });
 
