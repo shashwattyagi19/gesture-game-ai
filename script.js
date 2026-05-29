@@ -1082,11 +1082,26 @@ function joinMultiplayerRoom(room, host) {
     });
 }
 
-// WebRTC PeerJS setup for Video Sync
-function setupWebRTC(roomId, isHost) {
+// WebRTC PeerJS setup for Video and Audio Sync
+async function setupWebRTC(roomId, isHost) {
+    // 1. Ask for Microphone access
+    let audioTrack = null;
+    try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioTrack = audioStream.getAudioTracks()[0];
+    } catch (err) {
+        console.warn("Microphone access denied or unavailable. Continuing with video only.");
+    }
+
     const checkStream = setInterval(() => {
         if (videoElement.srcObject) {
             clearInterval(checkStream);
+            
+            // 2. Combine MediaPipe's Video stream with our Audio track
+            const videoTrack = videoElement.srcObject.getVideoTracks()[0];
+            const tracks = [videoTrack];
+            if (audioTrack) tracks.push(audioTrack);
+            const combinedStream = new MediaStream(tracks);
             
             const peerId = isHost ? `gesture-arena-${roomId}-host` : `gesture-arena-${roomId}-guest`;
             const peer = new Peer(peerId);
@@ -1094,13 +1109,13 @@ function setupWebRTC(roomId, isHost) {
             peer.on('open', (id) => {
                 if (!isHost) {
                     const hostId = `gesture-arena-${roomId}-host`;
-                    const call = peer.call(hostId, videoElement.srcObject);
+                    const call = peer.call(hostId, combinedStream);
                     call.on('stream', showOpponentVideo);
                 }
             });
 
             peer.on('call', (call) => {
-                call.answer(videoElement.srcObject);
+                call.answer(combinedStream);
                 call.on('stream', showOpponentVideo);
             });
         }
