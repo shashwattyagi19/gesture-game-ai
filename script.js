@@ -1197,6 +1197,7 @@ function handlePeerData(data) {
     } else if (data.event === 'exchange_nick') {
         opponentNickname = data.nickname || 'Opponent';
         document.querySelector('.cpu-card .card-label').innerText = opponentNickname.toUpperCase();
+        document.getElementById('mp-chat').classList.remove('hidden');
     } else if (data.event === 'chat_msg') {
         appendChatMessage('opponent', data.text);
     }
