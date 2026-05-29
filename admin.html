@@ -1175,24 +1175,32 @@
         async function fetchEnvVariables() {
             try {
                 const response = await fetch('/.env');
-                if (!response.ok) return null;
-                const text = await response.text();
-                const vars = {};
-                text.split(/\r?\n/).forEach(line => {
-                    const cleanLine = line.trim();
-                    if (!cleanLine || cleanLine.startsWith('#')) return;
-                    const index = cleanLine.indexOf('=');
-                    if (index > 0) {
-                        const key = cleanLine.substring(0, index).trim();
-                        const value = cleanLine.substring(index + 1).trim();
-                        vars[key] = value;
-                    }
-                });
-                return vars;
+                if (response.ok) {
+                    const text = await response.text();
+                    const vars = {};
+                    text.split(/\r?\n/).forEach(line => {
+                        const cleanLine = line.trim();
+                        if (!cleanLine || cleanLine.startsWith('#')) return;
+                        const index = cleanLine.indexOf('=');
+                        if (index > 0) {
+                            const key = cleanLine.substring(0, index).trim();
+                            const value = cleanLine.substring(index + 1).trim();
+                            vars[key] = value;
+                        }
+                    });
+                    if (vars.SUPABASE_URL && vars.SUPABASE_SERVICE_ROLE_KEY) return vars;
+                }
             } catch (err) {
                 console.log('No local environment file accessible directly via HTTP');
-                return null;
             }
+
+            // Fallback for Vercel deployment
+            const url = localStorage.getItem('admin_supabase_url');
+            const key = localStorage.getItem('admin_supabase_service_key');
+            if (url && key) {
+                return { SUPABASE_URL: url, SUPABASE_SERVICE_ROLE_KEY: key };
+            }
+            return null;
         }
 
         // Initialize Supabase Client
@@ -1250,16 +1258,37 @@
             const email = document.getElementById('admin-email').value.trim();
             const pass = document.getElementById('admin-password').value.trim();
 
+            const formUrl = document.getElementById('admin-env-url')?.value.trim();
+            const formKey = document.getElementById('admin-env-key')?.value.trim();
+
             if (email === ADMIN_EMAIL && pass === ADMIN_PASS) {
-                const envData = await fetchEnvVariables();
+                let envData = await fetchEnvVariables();
+                
+                if (formUrl && formKey) {
+                    envData = { SUPABASE_URL: formUrl, SUPABASE_SERVICE_ROLE_KEY: formKey };
+                }
+
                 if (envData && envData.SUPABASE_URL && envData.SUPABASE_SERVICE_ROLE_KEY) {
                     const success = await initSupabaseClient(envData.SUPABASE_URL, envData.SUPABASE_SERVICE_ROLE_KEY);
                     if (success) {
                         sessionStorage.setItem('admin_logged_in', 'true');
                     }
                 } else {
-                    setupError.innerText = "Cannot read .env file for Service Key. Ensure your backend is configured.";
-                    setupError.classList.remove('hidden');
+                    if (!document.getElementById('admin-env-url')) {
+                        const inputsHtml = `
+                            <div class="input-group" style="margin-bottom: 1.25rem;">
+                                <label for="admin-env-url" style="color: #818cf8;">Supabase URL <span class="optional">(Vercel Setup)</span></label>
+                                <input type="text" id="admin-env-url" placeholder="https://xxx.supabase.co" required>
+                            </div>
+                            <div class="input-group" style="margin-bottom: 1.25rem;">
+                                <label for="admin-env-key" style="color: #818cf8;">Service Role Key <span class="optional">(Vercel Setup)</span></label>
+                                <input type="password" id="admin-env-key" placeholder="eyJhbGciOi..." required>
+                            </div>
+                        `;
+                        document.getElementById('admin-password').parentElement.insertAdjacentHTML('afterend', inputsHtml);
+                        setupError.innerText = "No local .env file found. Please provide your Supabase connection details below for secure access on Vercel. This is only required once per device.";
+                        setupError.classList.remove('hidden');
+                    }
                 }
             } else {
                 setupError.innerText = "Invalid administrator credentials.";
