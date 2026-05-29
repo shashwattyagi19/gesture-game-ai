@@ -301,7 +301,10 @@ function sendChatMessage() {
 }
 chatSend.addEventListener('click', sendChatMessage);
 chatInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendChatMessage();
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        sendChatMessage();
+    }
 });
 
 function appendChatMessage(sender, text) {
@@ -323,26 +326,36 @@ let dragOffsetY = 0;
 chatHeader.addEventListener('mousedown', (e) => {
     isDragging = true;
     const rect = chatBox.getBoundingClientRect();
-    dragOffsetX = e.clientX - rect.left;
-    dragOffsetY = e.clientY - rect.top;
+    const parentRect = chatBox.offsetParent.getBoundingClientRect();
+    
+    // Lock exact relative position before removing right/bottom constraints
+    chatBox.style.left = (rect.left - parentRect.left) + 'px';
+    chatBox.style.top = (rect.top - parentRect.top) + 'px';
+    
     chatBox.style.bottom = 'auto';
     chatBox.style.right = 'auto';
     chatBox.style.margin = '0';
+    
+    dragOffsetX = e.clientX - rect.left;
+    dragOffsetY = e.clientY - rect.top;
 });
 
 document.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
-    let newX = e.clientX - dragOffsetX;
-    let newY = e.clientY - dragOffsetY;
     
-    const maxX = window.innerWidth - chatBox.offsetWidth;
-    const maxY = window.innerHeight - chatBox.offsetHeight;
+    const parentRect = chatBox.offsetParent.getBoundingClientRect();
     
-    newX = Math.max(0, Math.min(newX, maxX));
-    newY = Math.max(0, Math.min(newY, maxY));
+    // Absolute position within viewport
+    let newLeft = e.clientX - dragOffsetX;
+    let newTop = e.clientY - dragOffsetY;
+    
+    // Boundary check against viewport
+    newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - chatBox.offsetWidth));
+    newTop = Math.max(0, Math.min(newTop, window.innerHeight - chatBox.offsetHeight));
 
-    chatBox.style.left = `${newX}px`;
-    chatBox.style.top = `${newY}px`;
+    // Convert back to offsetParent relative coordinates
+    chatBox.style.left = (newLeft - parentRect.left) + 'px';
+    chatBox.style.top = (newTop - parentRect.top) + 'px';
 });
 
 document.addEventListener('mouseup', () => {
