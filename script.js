@@ -379,6 +379,18 @@ toggleCamBtn.addEventListener('click', () => {
     }
 });
 
+// Admin Overlay Logic
+const adminBtn = document.getElementById('admin-panel-btn');
+const adminModal = document.getElementById('admin-modal');
+const closeAdminBtn = document.getElementById('close-admin-modal');
+
+adminBtn.addEventListener('click', () => {
+    adminModal.classList.remove('hidden');
+});
+closeAdminBtn.addEventListener('click', () => {
+    adminModal.classList.add('hidden');
+});
+
 // Modal Toggle Utilities
 function showModal(modal) { modal.classList.remove('hidden'); }
 function hideModal(modal) { modal.classList.add('hidden'); }

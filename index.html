@@ -49,6 +49,9 @@
                     <button id="leaderboard-btn" class="icon-btn" title="Global Leaderboard" aria-label="Leaderboard">
                         🏆
                     </button>
+                    <button id="admin-panel-btn" class="icon-btn" title="Admin Control Center" aria-label="Admin Panel">
+                        🛡️
+                    </button>
                     <button id="auth-btn" class="icon-btn" title="Account Credentials" aria-label="Account">
                         <span id="auth-btn-icon">👤</span>
                     </button>
@@ -286,6 +289,17 @@
                     <!-- Injected dynamically -->
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Admin Panel Overlay -->
+    <div id="admin-modal" class="modal hidden">
+        <div class="modal-content" style="max-width: 95vw; height: 90vh; padding: 0; overflow: hidden; background: #06070a; border: 1px solid rgba(99, 102, 241, 0.3); box-shadow: 0 0 40px rgba(99, 102, 241, 0.2);">
+            <div style="background: rgba(0,0,0,0.5); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <span style="font-weight: bold; color: white; letter-spacing: 1px; font-size: 0.9rem;">🛡️ SECURE ADMIN TERMINAL</span>
+                <button id="close-admin-modal" style="background: none; border: none; color: #fca5a5; font-size: 1.5rem; cursor: pointer; line-height: 1;">&times;</button>
+            </div>
+            <iframe src="admin.html" style="width: 100%; height: calc(100% - 46px); border: none;"></iframe>
         </div>
     </div>
 
