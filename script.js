@@ -65,6 +65,13 @@ const mpLinkInput = document.getElementById('mp-link-input');
 const mpCopyBtn = document.getElementById('mp-copy-btn');
 const mpStatus = document.getElementById('mp-status');
 const mpLeaveBtn = document.getElementById('mp-leave-btn');
+const nicknameBtn = document.getElementById('nickname-btn');
+const chatInput = document.getElementById('chat-input');
+const chatSend = document.getElementById('chat-send');
+const chatMessages = document.getElementById('chat-messages');
+
+let myNickname = localStorage.getItem('gesture_nickname') || 'Player';
+let opponentNickname = 'Opponent';
 
 let isGamePlaying = false;
 let currentGesture = 'Unknown';
@@ -261,6 +268,44 @@ async function speak(text) {
         utterance.rate = 1.0;
         window.speechSynthesis.speak(utterance);
     }
+}
+
+// Nickname Logic
+nicknameBtn.addEventListener('click', () => {
+    const newName = prompt("Enter your new nickname:", myNickname);
+    if (newName && newName.trim().length > 0) {
+        myNickname = newName.trim();
+        localStorage.setItem('gesture_nickname', myNickname);
+        alert(`Nickname set to ${myNickname}`);
+        document.querySelector('.player-card .card-label').innerText = myNickname.toUpperCase();
+        if (gameMode === 'mp') {
+            sendSync({ event: 'exchange_nick', nickname: myNickname });
+        }
+    }
+});
+document.querySelector('.player-card .card-label').innerText = myNickname.toUpperCase();
+
+// Chat Logic
+function sendChatMessage() {
+    const text = chatInput.value.trim();
+    if (!text || !mpConn) return;
+    
+    appendChatMessage('self', text);
+    sendSync({ event: 'chat_msg', text: text });
+    chatInput.value = '';
+}
+chatSend.addEventListener('click', sendChatMessage);
+chatInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
+});
+
+function appendChatMessage(sender, text) {
+    document.getElementById('mp-chat').classList.remove('hidden');
+    const div = document.createElement('div');
+    div.className = `chat-msg ${sender}`;
+    div.innerText = (sender === 'self' ? 'You: ' : opponentNickname + ': ') + text;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 // Modal Toggle Utilities
@@ -753,7 +798,8 @@ async function triggerCountdownAndPlay() {
     // Deactivate VS badge
     vsBadge.classList.remove('active');
 
-    // Capture result
+    // Capture result with 150ms delay for maximum MediaPipe precision
+    await new Promise(r => setTimeout(r, 150));
     const playerMove = currentGesture;
 
     if (gameMode === 'mp') {
@@ -1113,6 +1159,9 @@ async function setupWebRTC(roomId, isHost) {
                     
                     // Setup Data Connection
                     mpConn = peer.connect(hostId);
+                    mpConn.on('open', () => {
+                        sendSync({ event: 'exchange_nick', nickname: myNickname });
+                    });
                     mpConn.on('data', handlePeerData);
                 }
             });
@@ -1125,6 +1174,7 @@ async function setupWebRTC(roomId, isHost) {
             peer.on('connection', (conn) => {
                 mpConn = conn;
                 mpConn.on('data', handlePeerData);
+                setTimeout(() => sendSync({ event: 'exchange_nick', nickname: myNickname }), 500);
             });
         }
     }, 500);
@@ -1144,6 +1194,11 @@ function handlePeerData(data) {
     } else if (data.event === 'lock_move') {
         opponentMoveLocked = data.move;
         checkMpResult();
+    } else if (data.event === 'exchange_nick') {
+        opponentNickname = data.nickname || 'Opponent';
+        document.querySelector('.cpu-card .card-label').innerText = opponentNickname.toUpperCase();
+    } else if (data.event === 'chat_msg') {
+        appendChatMessage('opponent', data.text);
     }
 }
 

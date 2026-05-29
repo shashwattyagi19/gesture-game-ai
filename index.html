@@ -40,6 +40,9 @@
                 </div>
                 <div class="header-actions">
                     <div id="round-badge" class="round-badge">Round <span id="round-num">1</span></div>
+                    <button id="nickname-btn" class="icon-btn" title="Edit Nickname" aria-label="Nickname">
+                        🏷️
+                    </button>
                     <button id="trophy-btn" class="icon-btn" title="Trophy Room & Ranked Status" aria-label="Trophies">
                         🏅
                     </button>
@@ -124,6 +127,16 @@
                     <span class="streak-fire">🔥</span>
                     <span id="streak-count" class="streak-count">0</span>
                     <span class="streak-label">Win Streak</span>
+                </div>
+            </div>
+
+            <!-- Multiplayer Chat Overlay -->
+            <div id="mp-chat" class="mp-chat hidden">
+                <div class="chat-header">Match Chat</div>
+                <div class="chat-messages" id="chat-messages"></div>
+                <div class="chat-input-area">
+                    <input type="text" id="chat-input" placeholder="Say something..." autocomplete="off">
+                    <button id="chat-send">Send</button>
                 </div>
             </div>
         </main>
