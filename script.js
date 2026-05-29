@@ -80,6 +80,7 @@ let roomId = null;
 let isHost = false;
 let myMoveLocked = null;
 let opponentMoveLocked = null;
+let mpConn = null;
 const MAX_ROUNDS_FOR_BAR = 10;
 
 // Supabase State
@@ -714,7 +715,7 @@ async function playGame() {
             alert("Waiting for the host to start the game!");
             return;
         }
-        mpChannel.send({ type: 'broadcast', event: 'start_sync', payload: {} });
+        sendSync({ event: 'start_sync' });
     } else {
         triggerCountdownAndPlay();
     }
@@ -762,11 +763,7 @@ async function triggerCountdownAndPlay() {
         cpuMoveIcon.innerText = '🔒';
         cpuMoveIcon.classList.add('reveal');
         
-        mpChannel.send({ 
-            type: 'broadcast', 
-            event: 'lock_move', 
-            payload: { player: isHost ? 'host' : 'guest', move: playerMove } 
-        });
+        sendSync({ event: 'lock_move', move: playerMove });
         checkMpResult();
         
         // Timeout to prevent hanging if opponent disconnects
@@ -1112,6 +1109,10 @@ async function setupWebRTC(roomId, isHost) {
                     const hostId = `gesture-arena-${roomId}-host`;
                     const call = peer.call(hostId, combinedStream);
                     call.on('stream', showOpponentVideo);
+                    
+                    // Setup Data Connection
+                    mpConn = peer.connect(hostId);
+                    mpConn.on('data', handlePeerData);
                 }
             });
 
@@ -1119,8 +1120,30 @@ async function setupWebRTC(roomId, isHost) {
                 call.answer(combinedStream);
                 call.on('stream', showOpponentVideo);
             });
+            
+            peer.on('connection', (conn) => {
+                mpConn = conn;
+                mpConn.on('data', handlePeerData);
+            });
         }
     }, 500);
+}
+
+function sendSync(data) {
+    if (mpConn && mpConn.open) {
+        mpConn.send(data);
+    } else if (mpChannel) {
+        mpChannel.send({ type: 'broadcast', event: data.event, payload: data });
+    }
+}
+
+function handlePeerData(data) {
+    if (data.event === 'start_sync') {
+        triggerCountdownAndPlay();
+    } else if (data.event === 'lock_move') {
+        opponentMoveLocked = data.move;
+        checkMpResult();
+    }
 }
 
 function showOpponentVideo(stream) {
