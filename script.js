@@ -715,8 +715,9 @@ async function playGame() {
             return;
         }
         mpChannel.send({ type: 'broadcast', event: 'start_sync', payload: {} });
+    } else {
+        triggerCountdownAndPlay();
     }
-    triggerCountdownAndPlay();
 }
 
 async function triggerCountdownAndPlay() {
@@ -1060,7 +1061,7 @@ function joinMultiplayerRoom(room, host) {
     });
 
     mpChannel.on('broadcast', { event: 'start_sync' }, () => {
-        if (!isHost) triggerCountdownAndPlay();
+        triggerCountdownAndPlay();
     });
 
     mpChannel.on('broadcast', { event: 'lock_move' }, (payload) => {
