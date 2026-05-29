@@ -897,7 +897,7 @@ function determineWinner(player, cpu) {
             speak("Your shield absorbed the impact!");
             result = 'loss'; // Logged as loss, but streak remains
         } else {
-            resultText.innerText = '💻 CPU WINS!';
+            resultText.innerText = gameMode === 'mp' ? '🔴 OPPONENT WINS!' : '💻 CPU WINS!';
             resultText.style.color = 'var(--danger)';
             resultBadge.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.1), transparent)';
             resultBadge.style.border = '1px solid rgba(239, 68, 68, 0.2)';
@@ -1028,6 +1028,11 @@ function joinMultiplayerRoom(room, host) {
         config: { broadcast: { self: true } }
     });
     
+    // WebRTC Camera Sync
+    if (window.Peer) {
+        setupWebRTC(room, host);
+    }
+    
     mpChannel.on('broadcast', { event: 'player_joined' }, () => {
         if (isHost) {
             mpStatus.className = 'mp-status connected';
@@ -1057,4 +1062,37 @@ function joinMultiplayerRoom(room, host) {
             }
         }
     });
+}
+
+// WebRTC PeerJS setup for Video Sync
+function setupWebRTC(roomId, isHost) {
+    const checkStream = setInterval(() => {
+        if (videoElement.srcObject) {
+            clearInterval(checkStream);
+            
+            const peerId = isHost ? `gesture-arena-${roomId}-host` : `gesture-arena-${roomId}-guest`;
+            const peer = new Peer(peerId);
+
+            peer.on('open', (id) => {
+                if (!isHost) {
+                    const hostId = `gesture-arena-${roomId}-host`;
+                    const call = peer.call(hostId, videoElement.srcObject);
+                    call.on('stream', showOpponentVideo);
+                }
+            });
+
+            peer.on('call', (call) => {
+                call.answer(videoElement.srcObject);
+                call.on('stream', showOpponentVideo);
+            });
+        }
+    }, 500);
+}
+
+function showOpponentVideo(stream) {
+    const oppVideo = document.getElementById('opponent_video');
+    if (oppVideo.srcObject !== stream) {
+        oppVideo.srcObject = stream;
+        oppVideo.classList.remove('hidden');
+    }
 }

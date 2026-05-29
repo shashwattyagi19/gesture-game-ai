@@ -14,6 +14,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <!-- Confetti Particle System -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <!-- PeerJS for WebRTC -->
+    <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
     <!-- Supabase JS SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -56,6 +58,7 @@
             <div class="video-section">
                 <div class="video-container" id="video-wrapper">
                     <video id="input_video" autoplay playsinline muted></video>
+                    <video id="opponent_video" autoplay playsinline class="hidden"></video>
                     <canvas id="output_canvas" width="640" height="480"></canvas>
                     <div id="countdown" class="countdown hidden">
                         <span class="countdown-number">3</span>
