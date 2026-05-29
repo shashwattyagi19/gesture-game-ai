@@ -1,6 +1,6 @@
 # Gesture Arena - Project Instructions
 
-**Version:** v3.0.0-stable
+**Version:** v3.1.0-stable (WebRTC Fixes + Admin Panel Cloud Support)
 
 ## 🌐 Live Deployment
 The game is publicly playable online at: **[https://gesture-game-ai.vercel.app](https://gesture-game-ai.vercel.app)**
