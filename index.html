@@ -88,8 +88,19 @@
                     </div>
                     <div id="gesture-indicator" class="gesture-indicator hidden"></div>
                     <div class="video-border"></div>
-                    <div id="camera-status" class="camera-status">
-                        <span class="pulse-dot"></span> Camera Active
+                    <div id="camera-status" class="camera-status camera-status--loading">
+                        <span class="pulse-dot"></span> <span id="camera-status-text">Starting camera…</span>
+                    </div>
+                    <div id="camera-overlay" class="camera-overlay hidden">
+                        <div class="camera-overlay-card">
+                            <span class="camera-overlay-icon">📷</span>
+                            <h3>Use your camera</h3>
+                            <p>Gesture Arena needs your webcam to read hand shapes for Rock, Paper, Scissors.</p>
+                            <button type="button" id="enable-camera-btn" class="primary-btn">
+                                <span class="btn-text">Enable Camera</span>
+                            </button>
+                            <p id="camera-error-msg" class="camera-error-msg hidden"></p>
+                        </div>
                     </div>
                 </div>
             </div>

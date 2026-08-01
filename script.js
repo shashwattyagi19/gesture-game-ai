@@ -409,15 +409,125 @@ hands.setOptions({
 
 hands.onResults(onResults);
 
-const camera = new Camera(videoElement, {
-    onFrame: async () => {
-        await hands.send({ image: videoElement });
-    },
-    width: 640,
-    height: 480
-});
+const cameraStatusEl = document.getElementById('camera-status');
+const cameraStatusText = document.getElementById('camera-status-text');
+const cameraOverlay = document.getElementById('camera-overlay');
+const enableCameraBtn = document.getElementById('enable-camera-btn');
+const cameraErrorMsg = document.getElementById('camera-error-msg');
+let cameraStream = null;
+let cameraFrameId = null;
 
-camera.start();
+function setCameraStatus(state, message) {
+    if (!cameraStatusEl || !cameraStatusText) return;
+    cameraStatusEl.className = 'camera-status';
+    if (state === 'active') cameraStatusEl.classList.add('camera-status--active');
+    else if (state === 'error') cameraStatusEl.classList.add('camera-status--error');
+    else cameraStatusEl.classList.add('camera-status--loading');
+    cameraStatusText.textContent = message;
+}
+
+async function startUserCamera() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraStatus('error', 'Camera not supported');
+        cameraOverlay?.classList.remove('hidden');
+        if (cameraErrorMsg) {
+            cameraErrorMsg.textContent = 'Your browser does not support camera access. Try Chrome or Edge.';
+            cameraErrorMsg.classList.remove('hidden');
+        }
+        return;
+    }
+
+    setCameraStatus('loading', 'Starting camera…');
+    if (cameraErrorMsg) cameraErrorMsg.classList.add('hidden');
+
+    try {
+        if (cameraStream) {
+            cameraStream.getTracks().forEach((track) => track.stop());
+        }
+
+        const videoConstraints = {
+            facingMode: 'user',
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+        };
+
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraints,
+            audio: false
+        });
+
+        videoElement.srcObject = cameraStream;
+        await videoElement.play();
+
+        localVideoTrack = cameraStream.getVideoTracks()[0];
+        cameraOverlay?.classList.add('hidden');
+        mediaControls?.classList.remove('hidden');
+        setCameraStatus('active', 'Camera Active');
+        runHandTrackingLoop();
+    } catch (err) {
+        console.error('Camera error:', err);
+        cameraOverlay?.classList.remove('hidden');
+        if (enableCameraBtn) enableCameraBtn.querySelector('.btn-text').textContent = 'Try Again';
+
+        let userMsg = 'Could not access your camera.';
+        if (err.name === 'NotAllowedError') {
+            userMsg = 'Camera permission denied. Allow camera access in your browser settings, then try again.';
+        } else if (err.name === 'NotFoundError') {
+            userMsg = 'No camera found on this device.';
+        } else if (err.name === 'NotReadableError') {
+            userMsg = 'Camera is in use by another app. Close it and try again.';
+        }
+
+        setCameraStatus('error', 'Camera unavailable');
+        if (cameraErrorMsg) {
+            cameraErrorMsg.textContent = userMsg;
+            cameraErrorMsg.classList.remove('hidden');
+        }
+    }
+}
+
+function runHandTrackingLoop() {
+    if (cameraFrameId) cancelAnimationFrame(cameraFrameId);
+
+    const loop = async () => {
+        if (videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            await hands.send({ image: videoElement });
+        }
+        cameraFrameId = requestAnimationFrame(loop);
+    };
+
+    loop();
+}
+
+if (enableCameraBtn) {
+    enableCameraBtn.addEventListener('click', startUserCamera);
+}
+
+(async function initCameraAccess() {
+    try {
+        if (navigator.permissions) {
+            const status = await navigator.permissions.query({ name: 'camera' });
+            if (status.state === 'granted') {
+                startUserCamera();
+                return;
+            }
+            if (status.state === 'denied') {
+                setCameraStatus('error', 'Camera blocked');
+                cameraOverlay?.classList.remove('hidden');
+                if (cameraErrorMsg) {
+                    cameraErrorMsg.textContent = 'Camera access is blocked. Enable it in your browser site settings for this page.';
+                    cameraErrorMsg.classList.remove('hidden');
+                }
+                return;
+            }
+        }
+    } catch (_) {
+        // permissions.query unsupported — fall through to auto-start attempt
+    }
+
+    // First visit or prompt not yet shown: try auto-start; fallback overlay on failure
+    startUserCamera();
+})();
 
 // Audio Synthesis
 async function speak(text) {
