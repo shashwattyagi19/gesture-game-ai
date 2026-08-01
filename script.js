@@ -18,7 +18,20 @@ const vsBadge = document.getElementById('vs-badge');
 const playerCard = document.getElementById('player-card');
 const cpuCard = document.getElementById('cpu-card');
 const streakContainer = document.getElementById('streak-container');
-const streakCount = document.getElementById('streak-count');
+// AI Calibration DOM Elements
+const calibrateBtn = document.getElementById('calibrate-btn');
+const calibrateModal = document.getElementById('calibrate-modal');
+const closeCalibrateBtn = document.getElementById('close-calibrate');
+const closeCalibrateBtn2 = document.getElementById('close-calibrate-btn');
+const resetCalibrationBtn = document.getElementById('reset-calibration');
+const calibrateSlotButtons = document.querySelectorAll('.btn-calibrate');
+
+let activeCalibrationGesture = null;
+let calibratedTemplates = {
+    'Rock': JSON.parse(localStorage.getItem('calibration_Rock')) || null,
+    'Paper': JSON.parse(localStorage.getItem('calibration_Paper')) || null,
+    'Scissors': JSON.parse(localStorage.getItem('calibration_Scissors')) || null
+};
 
 // Supabase DOM Elements
 const trophyBtn = document.getElementById('trophy-btn');
@@ -75,6 +88,112 @@ const mediaControls = document.getElementById('media-controls');
 
 let myNickname = localStorage.getItem('gesture_nickname') || 'Player';
 let opponentNickname = 'Opponent';
+let myAvatarId = getStoredAvatarId();
+let opponentAvatarId = avatarIdFromUsername('Opponent');
+let pendingAvatarId = myAvatarId;
+
+const avatarBtn = document.getElementById('avatar-btn');
+const avatarModal = document.getElementById('avatar-modal');
+const closeAvatarModalBtn = document.getElementById('close-avatar-modal');
+const saveAvatarBtn = document.getElementById('save-avatar-btn');
+const avatarPreview = document.getElementById('avatar-preview');
+const playerAvatarSlot = document.getElementById('player-avatar-slot');
+const opponentAvatarSlot = document.getElementById('opponent-avatar-slot');
+
+function applyPlayerAvatar(id = myAvatarId) {
+    if (playerAvatarSlot) {
+        playerAvatarSlot.innerHTML = renderAvatarMarkup(id, 'avatar-lg');
+    }
+}
+
+function applyOpponentAvatar(id = opponentAvatarId) {
+    if (opponentAvatarSlot) {
+        opponentAvatarSlot.innerHTML = renderAvatarMarkup(id, 'avatar-lg');
+    }
+}
+
+function updateAvatarPreview(id) {
+    const avatar = getAvatarById(id);
+    if (avatarPreview) {
+        avatarPreview.innerHTML = `
+            ${renderAvatarMarkup(id, 'avatar-xl')}
+            <span class="avatar-preview-name">${avatar.name}</span>`;
+    }
+}
+
+function handleAvatarGridSelect(id) {
+    pendingAvatarId = id;
+    updateAvatarPreview(id);
+    renderAvatarGrid(pendingAvatarId, handleAvatarGridSelect);
+}
+
+function openAvatarModal() {
+    pendingAvatarId = myAvatarId;
+    renderAvatarGrid(pendingAvatarId, handleAvatarGridSelect);
+    updateAvatarPreview(pendingAvatarId);
+    avatarModal.classList.remove('hidden');
+}
+
+function saveAvatarSelection() {
+    myAvatarId = pendingAvatarId;
+    setStoredAvatarId(myAvatarId);
+    applyPlayerAvatar();
+    avatarModal.classList.add('hidden');
+    localStorage.setItem('gesture_onboarded', '1');
+    syncAvatarToProfile();
+    if (gameMode === 'mp') {
+        sendPlayerProfile();
+    }
+}
+
+async function syncAvatarToProfile() {
+    if (!db || !userSession) return;
+    try {
+        await db.from('profiles').update({ avatar_id: myAvatarId }).eq('id', userSession.user.id);
+    } catch (_) {
+        // avatar_id column may not exist yet — localStorage is source of truth
+    }
+}
+
+function sendPlayerProfile() {
+    sendSync({
+        event: 'exchange_profile',
+        nickname: myNickname,
+        avatarId: myAvatarId
+    });
+}
+
+function loadAvatarFromProfile(profile) {
+    if (profile?.avatar_id && getAvatarById(profile.avatar_id)) {
+        myAvatarId = profile.avatar_id;
+        setStoredAvatarId(myAvatarId);
+    }
+    applyPlayerAvatar();
+}
+
+function initProductionMode() {
+    const isProduction =
+        location.hostname.includes('vercel.app') ||
+        location.hostname.includes('gesture-game');
+    const adminBtn = document.getElementById('admin-panel-btn');
+    if (isProduction && adminBtn) {
+        adminBtn.classList.add('hidden');
+    } else if (adminBtn && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+        adminBtn.classList.remove('hidden');
+    }
+}
+
+if (avatarBtn) avatarBtn.addEventListener('click', openAvatarModal);
+if (closeAvatarModalBtn) closeAvatarModalBtn.addEventListener('click', () => avatarModal.classList.add('hidden'));
+if (saveAvatarBtn) saveAvatarBtn.addEventListener('click', saveAvatarSelection);
+
+applyPlayerAvatar();
+applyOpponentAvatar(avatarIdFromUsername('CPU'));
+initProductionMode();
+
+if (!hasChosenAvatar()) {
+    setTimeout(openAvatarModal, 800);
+}
 
 let isGamePlaying = false;
 let currentGesture = 'Unknown';
@@ -131,6 +250,24 @@ function onResults(results) {
             drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: color, lineWidth: 4 });
             drawLandmarks(canvasCtx, landmarks, { color: '#ffffff', lineWidth: 1.5, radius: 3 });
 
+            // Capture custom gesture landmarks if actively calibrating
+            if (activeCalibrationGesture && index === 0) {
+                const norm = getNormalizedLandmarks(landmarks);
+                calibratedTemplates[activeCalibrationGesture] = norm;
+                localStorage.setItem(`calibration_${activeCalibrationGesture}`, JSON.stringify(norm));
+                
+                const currentCalib = activeCalibrationGesture;
+                activeCalibrationGesture = null; // Exit calibration mode
+                
+                // Voice confirmation
+                speak(`Successfully calibrated custom ${currentCalib} shape`);
+                
+                // Update UI status indicators
+                setTimeout(() => {
+                    updateCalibrationUI();
+                }, 100);
+            }
+
             // Recognize gesture
             const gesture = recognizeGesture(landmarks);
             detectedGestures.push({ gesture, handedness });
@@ -146,7 +283,60 @@ function onResults(results) {
     canvasCtx.restore();
 }
 
+// Normalize landmarks relative to wrist (0) and scaled by wrist-to-middle-mcp (0 to 9) distance
+function getNormalizedLandmarks(landmarks) {
+    const wrist = landmarks[0];
+    const mcp = landmarks[9]; // middle finger MCP joint
+    
+    const scale = Math.sqrt(
+        Math.pow(wrist.x - mcp.x, 2) +
+        Math.pow(wrist.y - mcp.y, 2) +
+        Math.pow(wrist.z - mcp.z, 2)
+    ) || 1; // avoid divide by zero
+    
+    return landmarks.map(p => ({
+        x: (p.x - wrist.x) / scale,
+        y: (p.y - wrist.y) / scale,
+        z: (p.z - wrist.z) / scale
+    }));
+}
+
+// Compare two normalized landmark arrays
+function compareLandmarks(norm1, norm2) {
+    let totalDiff = 0;
+    // Compare indices 1 to 20 (wrist is index 0 which is always 0,0,0)
+    for (let i = 1; i < 21; i++) {
+        totalDiff += Math.sqrt(
+            Math.pow(norm1[i].x - norm2[i].x, 2) +
+            Math.pow(norm1[i].y - norm2[i].y, 2) +
+            Math.pow(norm1[i].z - norm2[i].z, 2)
+        );
+    }
+    return totalDiff;
+}
+
 function recognizeGesture(landmarks) {
+    // Try calibrated templates first
+    const norm = getNormalizedLandmarks(landmarks);
+    let bestGesture = null;
+    let minDistance = 99999;
+    const threshold = 3.2; // Cumulative Euclidean threshold for gesture matching
+
+    for (const [gesture, template] of Object.entries(calibratedTemplates)) {
+        if (template) {
+            const distance = compareLandmarks(norm, template);
+            if (distance < minDistance) {
+                minDistance = distance;
+                bestGesture = gesture;
+            }
+        }
+    }
+
+    if (bestGesture && minDistance < threshold) {
+        return bestGesture;
+    }
+
+    // --- FALLBACK HEURISTICS ---
     // Helper to calculate 3D distance
     const dist = (p1, p2) => Math.sqrt(
         Math.pow(p1.x - p2.x, 2) +
@@ -231,14 +421,17 @@ camera.start();
 
 // Audio Synthesis
 async function speak(text) {
+    const elevenLabsKey = localStorage.getItem('elevenlabs_api_key') || config.apiKey;
+    const elevenLabsVoiceId = localStorage.getItem('elevenlabs_voice_id') || config.voiceId;
+
     // If API Key exists, use ElevenLabs
-    if (config.apiKey) {
+    if (elevenLabsKey) {
         try {
-            const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${config.voiceId}`, {
+            const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoiceId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'xi-api-key': config.apiKey
+                    'xi-api-key': elevenLabsKey
                 },
                 body: JSON.stringify({
                     text: text,
@@ -281,10 +474,9 @@ nicknameBtn.addEventListener('click', () => {
     if (newName && newName.trim().length > 0) {
         myNickname = newName.trim();
         localStorage.setItem('gesture_nickname', myNickname);
-        alert(`Nickname set to ${myNickname}`);
         document.querySelector('.player-card .card-label').innerText = myNickname.toUpperCase();
         if (gameMode === 'mp') {
-            sendSync({ event: 'exchange_nick', nickname: myNickname });
+            sendPlayerProfile();
         }
     }
 });
@@ -464,7 +656,60 @@ closeLeaderboardModalBtn.onclick = () => hideModal(leaderboardModal);
 window.onclick = (e) => {
     if (e.target === authModal) hideModal(authModal);
     if (e.target === leaderboardModal) hideModal(leaderboardModal);
+    if (e.target === calibrateModal) hideModal(calibrateModal);
 };
+
+// AI Calibration Dashboard Logic
+function updateCalibrationUI() {
+    for (const gesture of ['Rock', 'Paper', 'Scissors']) {
+        const isCalibrated = calibratedTemplates[gesture] !== null;
+        const statusEl = document.getElementById(`status-${gesture}`);
+        const btnEl = document.querySelector(`.btn-calibrate[data-gesture="${gesture}"]`);
+        
+        if (statusEl && btnEl) {
+            if (isCalibrated) {
+                statusEl.innerText = 'Calibrated (Custom)';
+                statusEl.className = 'slot-status active-calibrated';
+                btnEl.innerText = 'Recalibrate';
+                btnEl.classList.add('calibrated');
+            } else {
+                statusEl.innerText = 'Default Heuristic';
+                statusEl.className = 'slot-status';
+                btnEl.innerText = 'Calibrate';
+                btnEl.classList.remove('calibrated');
+            }
+        }
+    }
+}
+
+calibrateBtn.addEventListener('click', () => {
+    showModal(calibrateModal);
+    updateCalibrationUI();
+});
+
+closeCalibrateBtn.addEventListener('click', () => hideModal(calibrateModal));
+closeCalibrateBtn2.addEventListener('click', () => hideModal(calibrateModal));
+
+resetCalibrationBtn.addEventListener('click', () => {
+    if (confirm('Are you sure you want to reset all custom gestures to default heuristics?')) {
+        for (const gesture of ['Rock', 'Paper', 'Scissors']) {
+            calibratedTemplates[gesture] = null;
+            localStorage.removeItem(`calibration_${gesture}`);
+        }
+        updateCalibrationUI();
+        speak("All gestures reset to default heuristics");
+    }
+});
+
+calibrateSlotButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+        const gesture = btn.getAttribute('data-gesture');
+        activeCalibrationGesture = gesture;
+        btn.innerText = 'Capture (Show hand...)';
+        btn.classList.remove('calibrated');
+        speak(`Show your custom ${gesture} gesture to the camera`);
+    });
+});
 
 /* ===== Supabase Logic ===== */
 
@@ -480,17 +725,19 @@ async function initSupabase() {
 
     if (url && key) {
         try {
-            // Initialize Supabase Client
             db = supabase.createClient(url, key);
-            
-            // Check current active session
-            const { data: { session } } = await db.auth.getSession();
-            handleAuthStateChange(session);
 
-            // Listen to auth events
             db.auth.onAuthStateChange((_event, session) => {
                 handleAuthStateChange(session);
             });
+
+            try {
+                const { data: { session } } = await db.auth.getSession();
+                handleAuthStateChange(session);
+            } catch (sessionErr) {
+                console.warn('📡 Supabase session check failed (auth may still work):', sessionErr);
+            }
+
             console.log('📡 Supabase Initialized Successfully');
         } catch (err) {
             console.error('📡 Supabase Init Error:', err);
@@ -569,6 +816,12 @@ async function fetchUserProfile(userId) {
             userProfile = insertedData;
         } else {
             userProfile = data;
+        }
+        loadAvatarFromProfile(userProfile);
+        if (userProfile?.username) {
+            myNickname = userProfile.username;
+            localStorage.setItem('gesture_nickname', myNickname);
+            document.querySelector('.player-card .card-label').innerText = myNickname.toUpperCase();
         }
     } catch (err) {
         console.error('Error fetching/creating profile:', err);
@@ -654,21 +907,36 @@ authForm.onsubmit = async (e) => {
 // Google Sign-In Click Event
 googleSigninBtn.onclick = async () => {
     if (!db) {
-        showAuthAlert(authError, 'Please configure Supabase URL and Anon Key in settings first.');
+        showAuthAlert(authError, 'Database is not connected. Check your internet connection and reload the page.');
         return;
     }
     clearAuthAlerts();
+    const btnLabel = googleSigninBtn.querySelector('span');
+    const originalLabel = btnLabel ? btnLabel.textContent : '';
+    googleSigninBtn.disabled = true;
+    if (btnLabel) btnLabel.textContent = 'Redirecting to Google…';
     try {
-        const { data, error } = await db.auth.signInWithOAuth({
+        const redirectTo = window.location.origin + window.location.pathname;
+        const { error } = await db.auth.signInWithOAuth({
             provider: 'google',
             options: {
-                redirectTo: window.location.origin
+                redirectTo,
+                queryParams: { access_type: 'offline', prompt: 'consent' }
             }
         });
         if (error) throw error;
     } catch (err) {
         console.error('Google Auth Error:', err);
-        showAuthAlert(authError, err.message || 'An error occurred during Google sign in.');
+        const msg = (err.message || '').toLowerCase();
+        let userMsg = err.message || 'Google sign-in failed. Try again.';
+        if (msg.includes('fetch') || msg.includes('network') || msg.includes('failed to fetch')) {
+            userMsg = 'Cannot reach Supabase. Check your internet, then reload. If this persists, the Supabase project may be paused — open the Supabase dashboard and restore it.';
+        } else if (msg.includes('provider') || msg.includes('enabled')) {
+            userMsg = 'Google sign-in is not enabled in Supabase. In the dashboard: Authentication → Providers → Google → enable and add your Google OAuth credentials.';
+        }
+        showAuthAlert(authError, userMsg);
+        googleSigninBtn.disabled = false;
+        if (btnLabel) btnLabel.textContent = originalLabel;
     }
 };
 
@@ -726,11 +994,12 @@ async function loadLeaderboard() {
                 const row = document.createElement('tr');
                 if (isCurrent) row.className = 'current-user';
 
+                const rowAvatarId = avatarIdForProfile(profile);
                 row.innerHTML = `
                     <td><span class="rank-badge rank-${rank <= 3 ? rank : 'generic'}">${rank}</span></td>
                     <td>
                         <div class="player-cell">
-                            <span class="player-avatar">${profile.username.substring(0, 2).toUpperCase()}</span>
+                            ${renderAvatarMarkup(rowAvatarId, 'avatar-sm')}
                             <span>${profile.username} ${isCurrent ? '(You)' : ''}</span>
                         </div>
                     </td>
@@ -1184,6 +1453,7 @@ function joinMultiplayerRoom(room, host) {
             mpStatus.innerHTML = '✅ <span>Opponent Joined!</span>';
             setTimeout(() => mpModal.classList.add('hidden'), 1500);
             startBtn.disabled = false;
+            sendPlayerProfile();
         }
     });
 
@@ -1197,6 +1467,14 @@ function joinMultiplayerRoom(room, host) {
             checkMpResult();
         }
     });
+
+    mpChannel.on('broadcast', { event: 'exchange_profile' }, (payload) => {
+        handlePeerData(payload.payload || payload);
+    });
+
+    mpChannel.on('broadcast', { event: 'exchange_nick' }, (payload) => {
+        handlePeerData(payload.payload || payload);
+    });
     
     mpChannel.subscribe((status) => {
         if (status === 'SUBSCRIBED') {
@@ -1205,6 +1483,7 @@ function joinMultiplayerRoom(room, host) {
                 mpStatus.innerHTML = '✅ <span>Connected to Room!</span>';
                 setTimeout(() => mpModal.classList.add('hidden'), 1500);
                 mpChannel.send({ type: 'broadcast', event: 'player_joined', payload: {} });
+                sendPlayerProfile();
             }
         }
     });
@@ -1249,7 +1528,7 @@ async function setupWebRTC(roomId, isHost) {
                     // Setup Data Connection
                     mpConn = peer.connect(hostId);
                     mpConn.on('open', () => {
-                        sendSync({ event: 'exchange_nick', nickname: myNickname });
+                        sendPlayerProfile();
                     });
                     mpConn.on('data', handlePeerData);
                 }
@@ -1263,7 +1542,7 @@ async function setupWebRTC(roomId, isHost) {
             peer.on('connection', (conn) => {
                 mpConn = conn;
                 mpConn.on('data', handlePeerData);
-                setTimeout(() => sendSync({ event: 'exchange_nick', nickname: myNickname }), 500);
+                setTimeout(() => sendPlayerProfile(), 500);
             });
         }
     }, 500);
@@ -1283,9 +1562,11 @@ function handlePeerData(data) {
     } else if (data.event === 'lock_move') {
         opponentMoveLocked = data.move;
         checkMpResult();
-    } else if (data.event === 'exchange_nick') {
+    } else if (data.event === 'exchange_profile' || data.event === 'exchange_nick') {
         opponentNickname = data.nickname || 'Opponent';
+        opponentAvatarId = data.avatarId || avatarIdFromUsername(opponentNickname);
         document.querySelector('.cpu-card .card-label').innerText = opponentNickname.toUpperCase();
+        applyOpponentAvatar(opponentAvatarId);
         document.getElementById('mp-chat').classList.remove('hidden');
     } else if (data.event === 'chat_msg') {
         appendChatMessage('opponent', data.text);

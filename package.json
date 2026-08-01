@@ -4,8 +4,8 @@
   "description": "Rock Paper Scissors game using hand gesture recognition",
   "main": "index.html",
   "scripts": {
-    "start": "npx serve .",
-    "dev": "npx live-server ."
+    "start": "npx serve . -l 3000",
+    "dev": "npx live-server . --port=3000"
   },
   "keywords": [],
   "author": "",

@@ -3,8 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Rock Paper Scissors | Hand Gesture Game</title>
-    <meta name="description" content="Play Rock Paper Scissors against an AI using hand gestures in your browser. Powered by MediaPipe Hands.">
+    <title>Gesture Arena | AI Hand Gesture Rock Paper Scissors</title>
+    <meta name="description" content="Play Rock Paper Scissors with hand gestures. AI-powered, real-time multiplayer, global leaderboard. Choose your avatar and battle in the arena.">
+    <meta name="theme-color" content="#6366f1">
+    <meta property="og:title" content="Gesture Arena — Hand Gesture RPS">
+    <meta property="og:description" content="Battle with hand gestures. AI + multiplayer. Free to play in your browser.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://gesture-game-ai.vercel.app">
+    <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✊</text></svg>">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -40,6 +46,9 @@
                 </div>
                 <div class="header-actions">
                     <div id="round-badge" class="round-badge">Round <span id="round-num">1</span></div>
+                    <button id="avatar-btn" class="icon-btn" title="Choose Avatar" aria-label="Avatar">
+                        🎭
+                    </button>
                     <button id="nickname-btn" class="icon-btn" title="Edit Nickname" aria-label="Nickname">
                         🏷️
                     </button>
@@ -49,7 +58,10 @@
                     <button id="leaderboard-btn" class="icon-btn" title="Global Leaderboard" aria-label="Leaderboard">
                         🏆
                     </button>
-                    <button id="admin-panel-btn" class="icon-btn" title="Admin Control Center" aria-label="Admin Panel">
+                    <button id="calibrate-btn" class="icon-btn" title="AI Gesture Calibration" aria-label="Calibrate">
+                        🎯
+                    </button>
+                    <button id="admin-panel-btn" class="icon-btn admin-only-btn hidden" title="Admin Control Center" aria-label="Admin Panel">
                         🛡️
                     </button>
                     <button id="auth-btn" class="icon-btn" title="Account Credentials" aria-label="Account">
@@ -86,9 +98,12 @@
             <div class="battle-panel">
                 <!-- Player Card -->
                 <div class="stat-card player-card" id="player-card">
-                    <div class="card-header">
-                        <span class="card-label">YOU</span>
-                        <span class="card-score" id="player-score-display">0</span>
+                    <div class="card-avatar-row">
+                        <div id="player-avatar-slot" class="card-avatar-slot"></div>
+                        <div class="card-header card-header-inline">
+                            <span class="card-label">YOU</span>
+                            <span class="card-score" id="player-score-display">0</span>
+                        </div>
                     </div>
                     <div id="player-move" class="move-icon">❓</div>
                     <div class="score-bar">
@@ -105,9 +120,12 @@
 
                 <!-- Computer Card -->
                 <div class="stat-card cpu-card" id="cpu-card">
-                    <div class="card-header">
-                        <span class="card-label">CPU</span>
-                        <span class="card-score" id="cpu-score-display">0</span>
+                    <div class="card-avatar-row">
+                        <div id="opponent-avatar-slot" class="card-avatar-slot"></div>
+                        <div class="card-header card-header-inline">
+                            <span class="card-label">CPU</span>
+                            <span class="card-score" id="cpu-score-display">0</span>
+                        </div>
                     </div>
                     <div id="computer-move" class="move-icon">❓</div>
                     <div class="score-bar">
@@ -169,6 +187,29 @@
                 </div>
             </div>
         </footer>
+
+        <footer class="legal-footer">
+            <p>© 2026 Gesture Arena · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="https://github.com/shashwattyagi19/gesture-game-ai" target="_blank" rel="noopener">GitHub</a></p>
+        </footer>
+    </div>
+
+    <!-- Avatar Picker Modal -->
+    <div id="avatar-modal" class="modal hidden">
+        <div class="modal-content avatar-modal-content">
+            <div class="modal-header">
+                <h2>🎭 Choose Your Avatar</h2>
+                <button id="close-avatar-modal" class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <p class="modal-desc">Pick a fighter identity. Your avatar appears in the arena, leaderboard, and multiplayer matches.</p>
+            <div id="avatar-preview" class="avatar-preview"></div>
+            <div id="avatar-grid" class="avatar-grid"></div>
+            <div class="modal-actions">
+                <button id="save-avatar-btn" class="primary-btn" style="width:100%">
+                    <span class="btn-text">Save Avatar</span>
+                    <span class="btn-glow"></span>
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- Auth Modal -->
@@ -325,6 +366,44 @@
         </div>
     </div>
 
+    <!-- AI Calibration Modal -->
+    <div id="calibrate-modal" class="modal hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>🎯 AI Gesture Calibration</h2>
+                <button id="close-calibrate" class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <p class="modal-desc">Configure custom hand shapes for your rock-paper-scissors gestures. Press "Calibrate" on a slot, then hold your hand pose in front of the camera to train it instantly.</p>
+            
+            <div class="calibration-slots">
+                <div class="slot-card" data-gesture="Rock">
+                    <span class="slot-icon">✊</span>
+                    <span class="slot-name">Rock</span>
+                    <button class="btn-calibrate" data-gesture="Rock">Calibrate</button>
+                    <span class="slot-status" id="status-Rock">Default Heuristic</span>
+                </div>
+                <div class="slot-card" data-gesture="Paper">
+                    <span class="slot-icon">✋</span>
+                    <span class="slot-name">Paper</span>
+                    <button class="btn-calibrate" data-gesture="Paper">Calibrate</button>
+                    <span class="slot-status" id="status-Paper">Default Heuristic</span>
+                </div>
+                <div class="slot-card" data-gesture="Scissors">
+                    <span class="slot-icon">✌️</span>
+                    <span class="slot-name">Scissors</span>
+                    <button class="btn-calibrate" data-gesture="Scissors">Calibrate</button>
+                    <span class="slot-status" id="status-Scissors">Default Heuristic</span>
+                </div>
+            </div>
+            
+            <div class="modal-actions" style="display: flex; gap: 10px; margin-top: 1.5rem;">
+                <button id="reset-calibration" class="secondary-btn" style="flex: 1; padding: 0.8rem; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; border: 1px solid var(--surface-border); background: transparent; color: var(--text-secondary); transition: all var(--transition-fast);">Reset Defaults</button>
+                <button id="close-calibrate-btn" class="primary-btn" style="flex: 1.5; padding: 0.8rem;">Save & Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="avatars.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

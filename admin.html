@@ -690,7 +690,8 @@
             color: var(--text-secondary);
         }
 
-        .config-form input {
+        .config-form input,
+        .config-form select {
             background: rgba(0, 0, 0, 0.3);
             border: 1px solid var(--surface-border);
             padding: 0.75rem 1rem;
@@ -702,7 +703,13 @@
             transition: all var(--transition-fast);
         }
 
-        .config-form input:focus {
+        .config-form select option {
+            background: #0d0f16;
+            color: var(--text);
+        }
+
+        .config-form input:focus,
+        .config-form select:focus {
             border-color: var(--accent);
             box-shadow: 0 0 0 3px var(--accent-glow);
         }
@@ -1072,8 +1079,24 @@
                                 <input type="password" id="config-elevenlabs-key" placeholder="sk_...">
                             </div>
                             <div class="input-group">
-                                <label for="config-voice-id">Voice ID <span class="optional">Optional</span></label>
-                                <input type="text" id="config-voice-id" placeholder="21m00Tcm4TlvDq8ikWAM">
+                                <label for="config-voice-select">Choose Voice</label>
+                                <select id="config-voice-select">
+                                    <option value="21m00Tcm4TlvDq8ikWAM">Rachel (Female - Default)</option>
+                                    <option value="pNInz6otnsCBwqqdms1Q">Adam (Male - Professional)</option>
+                                    <option value="ErXwobaYiN019PkySvjV">Antoni (Male - Narrative)</option>
+                                    <option value="pMs2g89cMwruZ47Svwvj">Serena (Female - Expressive)</option>
+                                    <option value="piTKgcLEGmPEe242CchD">Nicole (Female - Soft)</option>
+                                    <option value="VR6A4UBqILPyZNq74DXJ">Arnold (Male - Strong)</option>
+                                    <option value="N2lVS1wTLFrU28qG886o">Callum (Male - Conversational)</option>
+                                    <option value="JBF2742aQGqLYRm9F5A0">George (Male - Warm)</option>
+                                    <option value="custom">Custom Voice ID...</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="input-row" id="custom-voice-id-group" style="display: none; margin-top: 1rem;">
+                            <div class="input-group" style="flex: 1;">
+                                <label for="config-voice-id">Custom Voice ID</label>
+                                <input type="text" id="config-voice-id" placeholder="Enter custom ElevenLabs Voice ID">
                             </div>
                         </div>
                         <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
@@ -1116,6 +1139,8 @@
         const configServiceKey = document.getElementById('config-service-key');
         const configElevenLabsKey = document.getElementById('config-elevenlabs-key');
         const configVoiceId = document.getElementById('config-voice-id');
+        const configVoiceSelect = document.getElementById('config-voice-select');
+        const customVoiceIdGroup = document.getElementById('custom-voice-id-group');
 
         // Spinners
         const topPlayersSpinner = document.getElementById('top-players-spinner');
@@ -1233,7 +1258,19 @@
                 configUrl.value = url;
                 configServiceKey.value = serviceKey;
                 configElevenLabsKey.value = localStorage.getItem('elevenlabs_api_key') || '';
-                configVoiceId.value = localStorage.getItem('elevenlabs_voice_id') || '21m00Tcm4TlvDq8ikWAM';
+                
+                const savedVoiceId = localStorage.getItem('elevenlabs_voice_id') || '21m00Tcm4TlvDq8ikWAM';
+                configVoiceId.value = savedVoiceId;
+                
+                // Select matching preset option or custom
+                const presetOptions = Array.from(configVoiceSelect.options).map(opt => opt.value);
+                if (presetOptions.includes(savedVoiceId)) {
+                    configVoiceSelect.value = savedVoiceId;
+                    customVoiceIdGroup.style.display = 'none';
+                } else {
+                    configVoiceSelect.value = 'custom';
+                    customVoiceIdGroup.style.display = 'block';
+                }
 
                 // Close screen
                 setupScreen.classList.add('hidden');
@@ -1296,13 +1333,23 @@
             }
         });
 
+        // Voice selection change listener
+        configVoiceSelect.addEventListener('change', () => {
+            if (configVoiceSelect.value === 'custom') {
+                customVoiceIdGroup.style.display = 'block';
+            } else {
+                customVoiceIdGroup.style.display = 'none';
+                configVoiceId.value = configVoiceSelect.value;
+            }
+        });
+
         // Handle Config Tab Submit
         configForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const url = configUrl.value.trim();
             const key = configServiceKey.value.trim();
             const elevenLabsKey = configElevenLabsKey.value.trim();
-            const voiceId = configVoiceId.value.trim();
+            const voiceId = configVoiceSelect.value === 'custom' ? configVoiceId.value.trim() : configVoiceSelect.value;
 
             localStorage.setItem('elevenlabs_api_key', elevenLabsKey);
             localStorage.setItem('elevenlabs_voice_id', voiceId || '21m00Tcm4TlvDq8ikWAM');
