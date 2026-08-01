@@ -441,8 +441,13 @@ async function startUserCamera() {
     if (cameraErrorMsg) cameraErrorMsg.classList.add('hidden');
 
     try {
+        if (videoElement.srcObject) {
+            videoElement.srcObject.getTracks().forEach((track) => track.stop());
+            videoElement.srcObject = null;
+        }
         if (cameraStream) {
             cameraStream.getTracks().forEach((track) => track.stop());
+            cameraStream = null;
         }
 
         const videoConstraints = {
@@ -475,7 +480,7 @@ async function startUserCamera() {
         } else if (err.name === 'NotFoundError') {
             userMsg = 'No camera found on this device.';
         } else if (err.name === 'NotReadableError') {
-            userMsg = 'Camera is in use by another app. Close it and try again.';
+            userMsg = 'Camera is busy. Close other tabs of this game, quit Zoom/Teams/Camera app, then click Try Again.';
         }
 
         setCameraStatus('error', 'Camera unavailable');
@@ -528,6 +533,12 @@ if (enableCameraBtn) {
     // First visit or prompt not yet shown: try auto-start; fallback overlay on failure
     startUserCamera();
 })();
+
+window.addEventListener('beforeunload', () => {
+    if (cameraStream) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+    }
+});
 
 // Audio Synthesis
 async function speak(text) {
