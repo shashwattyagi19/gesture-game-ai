@@ -37,8 +37,9 @@ function hasChosenAvatar() {
 }
 
 function avatarIdForProfile(profile) {
-  if (profile?.avatar_id && getAvatarById(profile.avatar_id)) {
-    return profile.avatar_id;
+  const dbAvatarId = profile?.avatar_id || profile?.avatar_url;
+  if (dbAvatarId && getAvatarById(dbAvatarId)) {
+    return dbAvatarId;
   }
   return avatarIdFromUsername(profile?.username || "Player");
 }

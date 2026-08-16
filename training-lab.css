@@ -1,0 +1,173 @@
+
+/* ===== Training Lab ===== */
+.training-lab-content {
+    max-width: 520px;
+}
+
+.training-stats-panel {
+    margin: 1rem 0 1.25rem;
+    padding: 1rem;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--surface-border);
+    background: rgba(99, 102, 241, 0.08);
+}
+
+.training-stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+.training-stat .label {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.training-stat .val {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #a5b4fc;
+}
+
+.training-stat-note {
+    margin: 0.75rem 0 0;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.training-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.training-action-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.2rem;
+    text-align: left;
+    padding: 0.85rem 1rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--surface-border);
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    width: 100%;
+    color: inherit;
+    font: inherit;
+}
+
+.training-action-card:hover {
+    border-color: rgba(99, 102, 241, 0.5);
+    background: rgba(99, 102, 241, 0.12);
+}
+
+.training-action-card.blade:hover {
+    border-color: rgba(236, 72, 153, 0.5);
+    background: rgba(236, 72, 153, 0.1);
+}
+
+.training-action-icon {
+    font-size: 1.4rem;
+}
+
+.training-action-title {
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.training-action-desc {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.training-lab-footer {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+}
+
+.training-lab-footer .secondary-btn,
+.training-lab-footer .primary-btn {
+    flex: 1;
+    padding: 0.75rem;
+}
+
+.training-hud {
+    position: absolute;
+    bottom: 72px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 8;
+    width: min(92%, 340px);
+    pointer-events: none;
+}
+
+.training-hud-card {
+    pointer-events: auto;
+    padding: 0.85rem 1rem;
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(99, 102, 241, 0.45);
+    background: rgba(8, 10, 24, 0.92);
+    backdrop-filter: blur(12px);
+    text-align: center;
+}
+
+.training-hud-card.blade {
+    border-color: rgba(236, 72, 153, 0.45);
+}
+
+.training-hud-label {
+    margin: 0;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #a5b4fc;
+}
+
+.training-hud-target {
+    margin: 0.35rem 0;
+    font-size: 1.5rem;
+    font-weight: 800;
+}
+
+.training-hud-detected {
+    margin: 0 0 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.training-progress {
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+}
+
+.training-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #6366f1, #22c55e);
+    border-radius: 999px;
+    transition: width 0.1s linear;
+}
+
+.training-stop-btn {
+    margin-top: 0.25rem;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.75rem;
+    border-radius: 999px;
+    border: 1px solid rgba(248, 113, 113, 0.4);
+    background: transparent;
+    color: #fca5a5;
+    cursor: pointer;
+}
+
+.training-stop-btn:hover {
+    background: rgba(248, 113, 113, 0.15);
+}

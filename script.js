@@ -149,9 +149,17 @@ function saveAvatarSelection() {
 async function syncAvatarToProfile() {
     if (!db || !userSession) return;
     try {
-        await db.from('profiles').update({ avatar_id: myAvatarId }).eq('id', userSession.user.id);
+        const { error } = await db.from('profiles').update({ 
+            avatar_id: myAvatarId,
+            avatar_url: myAvatarId 
+        }).eq('id', userSession.user.id);
+        
+        if (error) {
+            // Fallback for production databases where avatar_id column doesn't exist
+            await db.from('profiles').update({ avatar_url: myAvatarId }).eq('id', userSession.user.id);
+        }
     } catch (_) {
-        // avatar_id column may not exist yet — localStorage is source of truth
+        // localStorage is source of truth
     }
 }
 
@@ -164,8 +172,9 @@ function sendPlayerProfile() {
 }
 
 function loadAvatarFromProfile(profile) {
-    if (profile?.avatar_id && getAvatarById(profile.avatar_id)) {
-        myAvatarId = profile.avatar_id;
+    const dbAvatarId = profile?.avatar_id || profile?.avatar_url;
+    if (dbAvatarId && getAvatarById(dbAvatarId)) {
+        myAvatarId = dbAvatarId;
         setStoredAvatarId(myAvatarId);
     }
     applyPlayerAvatar();
@@ -198,6 +207,9 @@ if (!hasChosenAvatar()) {
 let isGamePlaying = false;
 let currentGesture = 'Unknown';
 let playerScore = 0;
+let mpTimeoutId = null;
+let webrtcIntervalId = null;
+let peerInstance = null;
 let cpuScore = 0;
 let roundNumber = 1;
 let winStreak = 0;
@@ -239,11 +251,60 @@ function onResults(results) {
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
+    // Draw the webcam camera frame onto canvas first so recorded canvas clips have full video
+    if (results.image) {
+        canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+    }
+
+    const inBladeMode = typeof activeGameMode !== 'undefined' && activeGameMode === 'slasher';
+    const inRunnerMode = typeof activeGameMode !== 'undefined' && activeGameMode === 'runner';
+    const landmarksList = results.multiHandLandmarks;
+
+    // ---- Gesture Runner fast path ----
+    if (inRunnerMode) {
+        const hand = landmarksList?.[0] || null;
+        const gesture = hand ? recognizeGesture(hand) : 'Unknown';
+        currentGesture = gesture;
+        if (window.GestureRunner) {
+            window.GestureRunner.onFrame(
+                hand,
+                gesture,
+                canvasCtx,
+                canvasElement.width,
+                canvasElement.height,
+                performance.now()
+            );
+        }
+        canvasCtx.restore();
+        return;
+    }
+
+    // ---- Blade Chaser fast path: skip RPS landmarks, drone, and gesture ML ----
+    if (inBladeMode) {
+        if (landmarksList && landmarksList.length > 0) {
+            const hand = landmarksList[0];
+            const indexTip = hand[8];
+            const indexDip = hand[7];
+            // Tiny tip guide only — full skeleton is invisible noise in blade mode
+            const tipX = indexTip.x * canvasElement.width;
+            const tipY = indexTip.y * canvasElement.height;
+            canvasCtx.beginPath();
+            canvasCtx.arc(tipX, tipY, 5, 0, Math.PI * 2);
+            canvasCtx.fillStyle = 'rgba(236, 72, 153, 0.85)';
+            canvasCtx.fill();
+            tickBladeEngine(indexTip, indexDip);
+        } else {
+            tickBladeEngine(null, null);
+        }
+        canvasCtx.restore();
+        return;
+    }
+
     let detectedGestures = [];
 
-    // Draw landmarks
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        results.multiHandLandmarks.forEach((landmarks, index) => {
+    // Draw landmarks (RPS / calibration modes only)
+    if (landmarksList && landmarksList.length > 0) {
+        landmarksList.forEach((landmarks, index) => {
             const handedness = results.multiHandedness[index].label;
             const color = handedness === 'Left' ? '#818cf8' : '#22c55e';
 
@@ -276,12 +337,61 @@ function onResults(results) {
         // Update global state for the game (use the first hand or prioritized hand)
         currentGesture = detectedGestures[0].gesture;
         updateIndicators(detectedGestures);
+        updateDronePosition(landmarksList[0]);
+        if (window.TrainingLab?.isActive?.()) {
+            window.TrainingLab.onFrame(currentGesture);
+        }
     } else {
         currentGesture = 'Unknown';
         updateIndicators([]);
+        updateDronePosition(null);
+        if (window.TrainingLab?.isActive?.()) {
+            window.TrainingLab.onFrame('Unknown');
+        }
     }
     canvasCtx.restore();
 }
+
+function updateDronePosition(landmarks) {
+    const drone = document.getElementById('spline-companion-container');
+    if (!drone) return;
+    
+    if (landmarks) {
+        // Landmark 9 is the middle finger MCP (geometric center of the palm)
+        const point = landmarks[9];
+        
+        // Mirror X since the video feed is scaleX(-1) mirrored
+        const x = (1 - point.x) * 100;
+        const y = point.y * 100;
+        
+        drone.style.left = `${x}%`;
+        drone.style.top = `${y}%`;
+        drone.style.bottom = 'auto';
+        drone.style.right = 'auto';
+        drone.style.transform = 'translate(-50%, -50%)'; // center the drone on the palm
+        drone.classList.add('tracking-active');
+        
+        // Update HUD status text
+        const statusText = document.getElementById('drone-status-text');
+        if (statusText) {
+            statusText.innerText = 'LOCKED ON';
+        }
+    } else {
+        drone.classList.remove('tracking-active');
+        drone.style.left = '';
+        drone.style.top = '';
+        drone.style.bottom = '16px';
+        drone.style.right = '16px';
+        drone.style.transform = '';
+        
+        // Restore default HUD status text
+        const statusText = document.getElementById('drone-status-text');
+        if (statusText) {
+            statusText.innerText = 'DRONE: ACTIVE';
+        }
+    }
+}
+
 
 // Normalize landmarks relative to wrist (0) and scaled by wrist-to-middle-mcp (0 to 9) distance
 function getNormalizedLandmarks(landmarks) {
@@ -400,14 +510,41 @@ const hands = new Hands({
     }
 });
 
+// Ultra-fast zero-latency Lite Model options for 60 FPS tracking
 hands.setOptions({
-    maxNumHands: 2,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.8,
-    minTrackingConfidence: 0.8,
+    maxNumHands: 1,
+    modelComplexity: 0, // 0 = Lite (Zero-lag 60+ FPS model)
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5,
 });
 
 hands.onResults(onResults);
+
+/** Tune MediaPipe for blade accuracy vs RPS latency */
+function applyHandsOptionsForMode(mode) {
+    if (mode === 'slasher') {
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 0,
+            minDetectionConfidence: 0.55,
+            minTrackingConfidence: 0.65,
+        });
+    } else if (mode === 'runner') {
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 0,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.55,
+        });
+    } else {
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 0,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+        });
+    }
+}
 
 const cameraStatusEl = document.getElementById('camera-status');
 const cameraStatusText = document.getElementById('camera-status-text');
@@ -416,6 +553,128 @@ const enableCameraBtn = document.getElementById('enable-camera-btn');
 const cameraErrorMsg = document.getElementById('camera-error-msg');
 let cameraStream = null;
 let cameraFrameId = null;
+let cameraStarting = false;
+const CAMERA_TAB_ID = `tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+let cameraBroadcast = null;
+
+try {
+    cameraBroadcast = new BroadcastChannel('gesture-arena-camera');
+    cameraBroadcast.onmessage = (event) => {
+        const msg = event.data;
+        if (!msg || msg.tabId === CAMERA_TAB_ID) return;
+
+        if (msg.type === 'requestRelease' && cameraStream && !isGamePlaying && gameMode !== 'mp') {
+            releaseCameraResources();
+            cameraOverlay?.classList.remove('hidden');
+            setCameraStatus('loading', 'Camera shared with another tab');
+            if (enableCameraBtn) {
+                enableCameraBtn.querySelector('.btn-text').textContent = 'Enable Camera';
+            }
+            cameraBroadcast.postMessage({ type: 'released', tabId: CAMERA_TAB_ID });
+        }
+    };
+} catch (_) {
+    cameraBroadcast = null;
+}
+
+function stopAllPageVideoTracks() {
+    document.querySelectorAll('video').forEach((el) => {
+        const stream = el.srcObject;
+        if (stream) {
+            stream.getTracks().forEach((track) => track.stop());
+            el.srcObject = null;
+        }
+    });
+}
+
+function releaseCameraResources() {
+    if (cameraFrameId) {
+        cancelAnimationFrame(cameraFrameId);
+        cameraFrameId = null;
+    }
+    handsInferBusy = false;
+
+    stopAllPageVideoTracks();
+    cameraStream = null;
+    if (localVideoTrack) {
+        localVideoTrack.stop();
+        localVideoTrack = null;
+    }
+
+    cameraBroadcast?.postMessage({ type: 'released', tabId: CAMERA_TAB_ID });
+}
+
+function waitMs(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function askOtherTabsToReleaseCamera() {
+    cameraBroadcast?.postMessage({ type: 'requestRelease', tabId: CAMERA_TAB_ID });
+}
+
+async function waitForVideoSignal(videoEl, timeoutMs = 6000) {
+    if (videoEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && videoEl.videoWidth > 0) {
+        return;
+    }
+    await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Video signal timeout')), timeoutMs);
+        const done = () => {
+            clearTimeout(timer);
+            resolve();
+        };
+        videoEl.onloadeddata = done;
+        videoEl.onplaying = done;
+    });
+    if (videoEl.videoWidth === 0) {
+        throw new Error('No video signal');
+    }
+}
+
+async function buildCameraConstraintAttempts() {
+    const base = [
+        { video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+        { video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 360 } }, audio: false },
+        { video: { facingMode: 'user' }, audio: false },
+        { video: true, audio: false },
+    ];
+
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter((d) => d.kind === 'videoinput' && d.deviceId);
+        for (const cam of cameras) {
+            base.unshift({
+                video: {
+                    deviceId: { exact: cam.deviceId },
+                    width: { ideal: 640 },
+                    height: { ideal: 480 },
+                },
+                audio: false,
+            });
+        }
+    } catch (_) {
+        // enumerateDevices may fail before first permission grant
+    }
+
+    return base;
+}
+
+async function acquireCameraStreamWithFallback() {
+    const attempts = await buildCameraConstraintAttempts();
+    let lastError = null;
+
+    for (const constraints of attempts) {
+        try {
+            return await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (err) {
+            lastError = err;
+            if (err.name !== 'NotReadableError' && err.name !== 'AbortError') {
+                throw err;
+            }
+        }
+    }
+
+    throw lastError || new Error('Camera unavailable');
+}
 
 function setCameraStatus(state, message) {
     if (!cameraStatusEl || !cameraStatusText) return;
@@ -427,6 +686,7 @@ function setCameraStatus(state, message) {
 }
 
 async function startUserCamera() {
+    if (cameraStarting) return;
     if (!navigator.mediaDevices?.getUserMedia) {
         setCameraStatus('error', 'Camera not supported');
         cameraOverlay?.classList.remove('hidden');
@@ -437,50 +697,73 @@ async function startUserCamera() {
         return;
     }
 
+    cameraStarting = true;
     setCameraStatus('loading', 'Starting camera…');
     if (cameraErrorMsg) cameraErrorMsg.classList.add('hidden');
+    if (enableCameraBtn) enableCameraBtn.disabled = true;
+
+    releaseCameraResources();
+    askOtherTabsToReleaseCamera();
+    await waitMs(600);
 
     try {
-        if (videoElement.srcObject) {
-            videoElement.srcObject.getTracks().forEach((track) => track.stop());
-            videoElement.srcObject = null;
-        }
-        if (cameraStream) {
-            cameraStream.getTracks().forEach((track) => track.stop());
-            cameraStream = null;
+        let lastError = null;
+        const maxAttempts = 5;
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+                if (attempt > 0) {
+                    releaseCameraResources();
+                    askOtherTabsToReleaseCamera();
+                    await waitMs(500 * attempt);
+                }
+                cameraStream = await acquireCameraStreamWithFallback();
+                lastError = null;
+                break;
+            } catch (err) {
+                lastError = err;
+                if (err.name !== 'NotReadableError' && err.name !== 'AbortError') {
+                    throw err;
+                }
+            }
         }
 
-        const videoConstraints = {
-            facingMode: 'user',
-            width: { ideal: 640 },
-            height: { ideal: 480 }
-        };
-
-        cameraStream = await navigator.mediaDevices.getUserMedia({
-            video: videoConstraints,
-            audio: false
-        });
+        if (!cameraStream) {
+            throw lastError || new Error('Camera unavailable');
+        }
 
         videoElement.srcObject = cameraStream;
+        videoElement.muted = true;
         await videoElement.play();
+        await waitForVideoSignal(videoElement);
 
         localVideoTrack = cameraStream.getVideoTracks()[0];
+        const deviceLabel = localVideoTrack.label || 'Webcam';
         cameraOverlay?.classList.add('hidden');
         mediaControls?.classList.remove('hidden');
-        setCameraStatus('active', 'Camera Active');
+        setCameraStatus('active', `Camera: ${deviceLabel.slice(0, 28)}`);
+        cameraBroadcast?.postMessage({ type: 'acquired', tabId: CAMERA_TAB_ID });
         runHandTrackingLoop();
     } catch (err) {
         console.error('Camera error:', err);
+        releaseCameraResources();
         cameraOverlay?.classList.remove('hidden');
-        if (enableCameraBtn) enableCameraBtn.querySelector('.btn-text').textContent = 'Try Again';
+        if (enableCameraBtn) {
+            enableCameraBtn.disabled = false;
+            enableCameraBtn.querySelector('.btn-text').textContent = 'Try Again';
+        }
 
         let userMsg = 'Could not access your camera.';
         if (err.name === 'NotAllowedError') {
-            userMsg = 'Camera permission denied. Allow camera access in your browser settings, then try again.';
+            userMsg = 'Camera permission denied. Click the lock icon in the address bar, allow Camera, then try again.';
         } else if (err.name === 'NotFoundError') {
             userMsg = 'No camera found on this device.';
-        } else if (err.name === 'NotReadableError') {
-            userMsg = 'Camera is busy. Close other tabs of this game, quit Zoom/Teams/Camera app, then click Try Again.';
+        } else if (err.name === 'NotReadableError' || err.name === 'AbortError') {
+            userMsg =
+                'Camera is in use elsewhere. Close link-digest Gesture Arena, other copies of this game, Zoom/Teams, then wait 2 seconds and click Try Again.';
+        } else if (err.message === 'Video signal timeout' || err.message === 'No video signal') {
+            userMsg =
+                'Camera opened but no video signal. Unplug/replug your webcam or restart Chrome, then Try Again.';
         }
 
         setCameraStatus('error', 'Camera unavailable');
@@ -488,15 +771,47 @@ async function startUserCamera() {
             cameraErrorMsg.textContent = userMsg;
             cameraErrorMsg.classList.remove('hidden');
         }
+    } finally {
+        cameraStarting = false;
+        if (enableCameraBtn && cameraStream) {
+            enableCameraBtn.disabled = false;
+            enableCameraBtn.querySelector('.btn-text').textContent = 'Enable Camera';
+        }
     }
 }
 
+let handsInferBusy = false;
+
 function runHandTrackingLoop() {
     if (cameraFrameId) cancelAnimationFrame(cameraFrameId);
+    handsInferBusy = false;
 
-    const loop = async () => {
-        if (videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-            await hands.send({ image: videoElement });
+    // Always paint the live video feed — even if MediaPipe is slow or fails to load
+    const loop = () => {
+        if (
+            videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+            videoElement.videoWidth > 0
+        ) {
+            canvasCtx.drawImage(
+                videoElement,
+                0,
+                0,
+                canvasElement.width,
+                canvasElement.height
+            );
+        }
+
+        if (
+            !handsInferBusy &&
+            videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+        ) {
+            handsInferBusy = true;
+            hands
+                .send({ image: videoElement })
+                .catch(() => {})
+                .finally(() => {
+                    handsInferBusy = false;
+                });
         }
         cameraFrameId = requestAnimationFrame(loop);
     };
@@ -509,35 +824,47 @@ if (enableCameraBtn) {
 }
 
 (async function initCameraAccess() {
+    cameraOverlay?.classList.remove('hidden');
+    setCameraStatus('loading', 'Camera ready');
+    if (enableCameraBtn) {
+        enableCameraBtn.querySelector('.btn-text').textContent = 'Enable Camera';
+    }
+
     try {
         if (navigator.permissions) {
             const status = await navigator.permissions.query({ name: 'camera' });
-            if (status.state === 'granted') {
-                startUserCamera();
-                return;
-            }
             if (status.state === 'denied') {
                 setCameraStatus('error', 'Camera blocked');
-                cameraOverlay?.classList.remove('hidden');
                 if (cameraErrorMsg) {
-                    cameraErrorMsg.textContent = 'Camera access is blocked. Enable it in your browser site settings for this page.';
+                    cameraErrorMsg.textContent =
+                        'Camera access is blocked. Enable it in Chrome site settings (lock icon → Camera → Allow), then refresh.';
                     cameraErrorMsg.classList.remove('hidden');
                 }
                 return;
             }
+            // Require a click to start — avoids "camera busy" when another tab already holds the device
         }
     } catch (_) {
-        // permissions.query unsupported — fall through to auto-start attempt
+        // permissions.query unsupported
     }
-
-    // First visit or prompt not yet shown: try auto-start; fallback overlay on failure
-    startUserCamera();
 })();
 
 window.addEventListener('beforeunload', () => {
-    if (cameraStream) {
-        cameraStream.getTracks().forEach((track) => track.stop());
+    releaseCameraResources();
+});
+
+window.getArenaGesture = () => currentGesture;
+window.isArenaCameraActive = () => !!(cameraStream && localVideoTrack?.readyState === 'live');
+window.setGameMode = setGameMode;
+
+toggleCamBtn.addEventListener('click', () => {
+    if (!localVideoTrack || !cameraStream) {
+        startUserCamera();
+        return;
     }
+    localVideoTrack.enabled = !localVideoTrack.enabled;
+    toggleCamBtn.innerText = localVideoTrack.enabled ? '📷' : '🚫';
+    toggleCamBtn.classList.toggle('disabled', !localVideoTrack.enabled);
 });
 
 // Audio Synthesis
@@ -684,13 +1011,7 @@ toggleMicBtn.addEventListener('click', () => {
     }
 });
 
-toggleCamBtn.addEventListener('click', () => {
-    if (localVideoTrack) {
-        localVideoTrack.enabled = !localVideoTrack.enabled;
-        toggleCamBtn.innerText = localVideoTrack.enabled ? '📷' : '🚫';
-        toggleCamBtn.classList.toggle('disabled', !localVideoTrack.enabled);
-    }
-});
+// Camera toggle wired above (near beforeunload) so it can restart a dead stream
 
 // Admin Overlay Logic
 const adminBtn = document.getElementById('admin-panel-btn');
@@ -778,6 +1099,8 @@ window.onclick = (e) => {
     if (e.target === authModal) hideModal(authModal);
     if (e.target === leaderboardModal) hideModal(leaderboardModal);
     if (e.target === calibrateModal) hideModal(calibrateModal);
+    const trainingModal = document.getElementById('training-lab-modal');
+    if (trainingModal && e.target === trainingModal) trainingModal.classList.add('hidden');
 };
 
 // AI Calibration Dashboard Logic
@@ -807,6 +1130,13 @@ calibrateBtn.addEventListener('click', () => {
     showModal(calibrateModal);
     updateCalibrationUI();
 });
+
+const trainingLabBtn = document.getElementById('training-lab-btn');
+if (trainingLabBtn) {
+    trainingLabBtn.addEventListener('click', () => {
+        if (typeof openTrainingLab === 'function') openTrainingLab();
+    });
+}
 
 closeCalibrateBtn.addEventListener('click', () => hideModal(calibrateModal));
 closeCalibrateBtn2.addEventListener('click', () => hideModal(calibrateModal));
@@ -1229,10 +1559,6 @@ function updateScoreBars() {
 async function playGame() {
     if (isGamePlaying) return;
     if (gameMode === 'mp') {
-        if (!isHost) {
-            alert("Waiting for the host to start the game!");
-            return;
-        }
         sendSync({ event: 'start_sync' });
         triggerCountdownAndPlay();
     } else {
@@ -1241,6 +1567,11 @@ async function playGame() {
 }
 
 async function triggerCountdownAndPlay() {
+    if (mpTimeoutId) {
+        clearTimeout(mpTimeoutId);
+        mpTimeoutId = null;
+    }
+
     isGamePlaying = true;
     startBtn.disabled = true;
     resultBadge.classList.add('hidden');
@@ -1256,17 +1587,22 @@ async function triggerCountdownAndPlay() {
     countdownEl.classList.remove('hidden');
     for (let i = 3; i > 0; i--) {
         countdownNum.innerText = i;
-        // Re-trigger animation
-        countdownNum.style.animation = 'none';
+        // Re-trigger Animate.css jackInTheBox animation
+        countdownNum.className = 'countdown-number'; // Reset
         countdownNum.offsetHeight; // Force reflow
-        countdownNum.style.animation = '';
-        await new Promise(r => setTimeout(r, 900));
+        countdownNum.className = 'countdown-number animate__animated animate__jackInTheBox';
+        await new Promise(r => setTimeout(r, 950));
     }
     countdownNum.innerText = 'GO!';
     countdownNum.style.fontSize = '5rem';
-    await new Promise(r => setTimeout(r, 500));
+    // Re-trigger Animate.css bounceInDown animation for GO!
+    countdownNum.className = 'countdown-number'; // Reset
+    countdownNum.offsetHeight; // Force reflow
+    countdownNum.className = 'countdown-number animate__animated animate__bounceInDown';
+    await new Promise(r => setTimeout(r, 650));
     countdownEl.classList.add('hidden');
     countdownNum.style.fontSize = '';
+    countdownNum.className = 'countdown-number'; // Reset to base class
 
     // Deactivate VS badge
     vsBadge.classList.remove('active');
@@ -1287,7 +1623,7 @@ async function triggerCountdownAndPlay() {
         checkMpResult();
         
         // Timeout to prevent hanging if opponent disconnects
-        setTimeout(() => {
+        mpTimeoutId = setTimeout(() => {
             if (isGamePlaying) {
                 console.log("Match timed out waiting for opponent.");
                 cpuMoveIcon.innerText = '❌';
@@ -1298,8 +1634,9 @@ async function triggerCountdownAndPlay() {
                 opponentMoveLocked = null;
                 isGamePlaying = false;
                 startBtn.disabled = false;
-                startBtn.querySelector('.btn-text').innerText = isHost ? 'START MATCH' : 'WAITING FOR HOST';
+                startBtn.querySelector('.btn-text').innerText = 'START MATCH';
             }
+            mpTimeoutId = null;
         }, 8000);
     } else {
         const moves = ['Rock', 'Paper', 'Scissors'];
@@ -1340,6 +1677,10 @@ async function triggerCountdownAndPlay() {
 
 function checkMpResult() {
     if (myMoveLocked && opponentMoveLocked) {
+        if (mpTimeoutId) {
+            clearTimeout(mpTimeoutId);
+            mpTimeoutId = null;
+        }
         setTimeout(() => {
             cpuMoveIcon.innerText = GESTURE_ICONS[opponentMoveLocked];
             determineWinner(myMoveLocked, opponentMoveLocked);
@@ -1352,9 +1693,20 @@ function checkMpResult() {
 
             isGamePlaying = false;
             startBtn.disabled = false;
-            startBtn.querySelector('.btn-text').innerText = isHost ? 'PLAY AGAIN' : 'WAITING FOR HOST';
+            startBtn.querySelector('.btn-text').innerText = 'PLAY AGAIN';
         }, 500);
     }
+}
+
+function applyTempAnimation(element, animationClass) {
+    if (!element) return;
+    const classes = animationClass.split(' ');
+    element.classList.add(...classes);
+    const handler = () => {
+        element.classList.remove(...classes);
+        element.removeEventListener('animationend', handler);
+    };
+    element.addEventListener('animationend', handler);
 }
 
 function determineWinner(player, cpu) {
@@ -1369,7 +1721,10 @@ function determineWinner(player, cpu) {
         resultText.style.color = 'var(--text-muted)';
         winStreak = 0;
         streakContainer.classList.add('hidden');
+        const fireEmoji = streakContainer.querySelector('.streak-fire');
+        if (fireEmoji) fireEmoji.className = 'streak-fire';
         shieldActive = false;
+        speak("Gesture not detected.");
         return;
     }
 
@@ -1384,6 +1739,10 @@ function determineWinner(player, cpu) {
         resultBadge.style.border = '1px solid rgba(245, 158, 11, 0.2)';
         winStreak = 0;
         streakContainer.classList.add('hidden');
+        const fireEmoji = streakContainer.querySelector('.streak-fire');
+        if (fireEmoji) fireEmoji.className = 'streak-fire';
+        
+        applyTempAnimation(resultBadge, 'animate__animated animate__shakeX');
         speak("It is a draw!");
         result = 'draw';
     } else if (
@@ -1400,6 +1759,10 @@ function determineWinner(player, cpu) {
         playerCard.classList.add('win-flash');
         cpuCard.classList.add('lose-flash');
 
+        applyTempAnimation(playerCard, 'animate__animated animate__heartBeat');
+        applyTempAnimation(cpuCard, 'animate__animated animate__headShake');
+        applyTempAnimation(resultBadge, 'animate__animated animate__bounceIn');
+
         if (window.confetti) {
             confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
         }
@@ -1410,6 +1773,11 @@ function determineWinner(player, cpu) {
         if (winStreak >= 2) {
             streakContainer.classList.remove('hidden');
             streakCount.innerText = winStreak;
+            // Infinite bounce for fire emoji when active
+            const fireEmoji = streakContainer.querySelector('.streak-fire');
+            if (fireEmoji) {
+                fireEmoji.className = 'streak-fire animate__animated animate__bounce animate__infinite';
+            }
         }
 
         if (winStreak === 3) {
@@ -1428,6 +1796,7 @@ function determineWinner(player, cpu) {
             resultBadge.style.background = 'linear-gradient(135deg, rgba(6, 182, 212, 0.1), transparent)';
             resultBadge.style.border = '1px solid rgba(6, 182, 212, 0.2)';
             shieldActive = false; // consume shield
+            applyTempAnimation(resultBadge, 'animate__animated animate__bounceIn');
             speak("Your shield absorbed the impact!");
             result = 'loss'; // Logged as loss, but streak remains
         } else {
@@ -1441,6 +1810,12 @@ function determineWinner(player, cpu) {
             playerCard.classList.add('lose-flash');
             winStreak = 0;
             streakContainer.classList.add('hidden');
+            const fireEmoji = streakContainer.querySelector('.streak-fire');
+            if (fireEmoji) fireEmoji.className = 'streak-fire';
+            
+            applyTempAnimation(playerCard, 'animate__animated animate__headShake');
+            applyTempAnimation(cpuCard, 'animate__animated animate__heartBeat');
+            applyTempAnimation(resultBadge, 'animate__animated animate__bounceIn');
             
             if (navigator.vibrate) navigator.vibrate(300); // Haptic loss
             const lossLines = ["The computer wins this round.", "Is that all you've got?", "Better luck next time!", "I am learning your patterns."];
@@ -1537,9 +1912,7 @@ mpCopyBtn.addEventListener('click', () => {
     setTimeout(() => mpCopyBtn.innerText = "Copy Link", 2000);
 });
 
-mpLeaveBtn.addEventListener('click', () => {
-    window.location.href = window.location.pathname;
-});
+mpLeaveBtn.addEventListener('click', leaveMultiplayerRoom);
 
 function joinMultiplayerRoom(room, host) {
     if (!db) {
@@ -1551,6 +1924,7 @@ function joinMultiplayerRoom(room, host) {
     gameMode = 'mp';
     
     mpModal.classList.remove('hidden');
+    mpLeaveBtn.classList.remove('hidden');
     mpLinkInput.value = window.location.origin + window.location.pathname + "?room=" + room;
     
     // Set UI
@@ -1605,6 +1979,10 @@ function joinMultiplayerRoom(room, host) {
                 setTimeout(() => mpModal.classList.add('hidden'), 1500);
                 mpChannel.send({ type: 'broadcast', event: 'player_joined', payload: {} });
                 sendPlayerProfile();
+                
+                // Enable start match button for guest as well
+                startBtn.disabled = false;
+                startBtn.querySelector('.btn-text').innerText = 'START MATCH';
             }
         }
     });
@@ -1621,9 +1999,11 @@ async function setupWebRTC(roomId, isHost) {
         console.warn("Microphone access denied or unavailable. Continuing with video only.");
     }
 
-    const checkStream = setInterval(() => {
+    if (webrtcIntervalId) clearInterval(webrtcIntervalId);
+    webrtcIntervalId = setInterval(() => {
         if (videoElement.srcObject) {
-            clearInterval(checkStream);
+            clearInterval(webrtcIntervalId);
+            webrtcIntervalId = null;
             
             // 2. Combine MediaPipe's Video stream with our Audio track
             localVideoTrack = videoElement.srcObject.getVideoTracks()[0];
@@ -1638,7 +2018,12 @@ async function setupWebRTC(roomId, isHost) {
             mediaControls.classList.remove('hidden');
             
             const peerId = isHost ? `gesture-arena-${roomId}-host` : `gesture-arena-${roomId}-guest`;
+            
+            if (peerInstance) {
+                try { peerInstance.destroy(); } catch (_) {}
+            }
             const peer = new Peer(peerId);
+            peerInstance = peer;
 
             peer.on('open', (id) => {
                 if (!isHost) {
@@ -1650,6 +2035,8 @@ async function setupWebRTC(roomId, isHost) {
                     mpConn = peer.connect(hostId);
                     mpConn.on('open', () => {
                         sendPlayerProfile();
+                        startBtn.disabled = false;
+                        startBtn.querySelector('.btn-text').innerText = 'START MATCH';
                     });
                     mpConn.on('data', handlePeerData);
                 }
@@ -1667,6 +2054,81 @@ async function setupWebRTC(roomId, isHost) {
             });
         }
     }, 500);
+}
+
+function leaveMultiplayerRoom() {
+    // 1. Unsubscribe from Supabase channel
+    if (mpChannel) {
+        mpChannel.unsubscribe();
+        mpChannel = null;
+    }
+    
+    // 2. Close WebRTC and Peer connection
+    if (webrtcIntervalId) {
+        clearInterval(webrtcIntervalId);
+        webrtcIntervalId = null;
+    }
+    if (peerInstance) {
+        try { peerInstance.destroy(); } catch(_) {}
+        peerInstance = null;
+    }
+    if (mpConn) {
+        try { mpConn.close(); } catch(_) {}
+        mpConn = null;
+    }
+    if (localAudioTrack) {
+        try { localAudioTrack.stop(); } catch(_) {}
+        localAudioTrack = null;
+    }
+    
+    // 3. Reset game state variables
+    gameMode = 'ai';
+    roomId = null;
+    isHost = false;
+    opponentNickname = 'CPU';
+    opponentAvatarId = avatarIdFromUsername('CPU');
+    myMoveLocked = null;
+    opponentMoveLocked = null;
+    isGamePlaying = false;
+    
+    if (mpTimeoutId) {
+        clearTimeout(mpTimeoutId);
+        mpTimeoutId = null;
+    }
+    
+    // 4. Reset UI Elements
+    document.querySelector('.cpu-card .card-label').innerText = 'CPU';
+    applyOpponentAvatar(opponentAvatarId);
+    
+    // Hide opponent video
+    const oppVideo = document.getElementById('opponent_video');
+    if (oppVideo) {
+        oppVideo.srcObject = null;
+        oppVideo.classList.add('hidden');
+    }
+    
+    // Reset indicators
+    cpuMoveIcon.innerText = '❓';
+    cpuMoveIcon.classList.remove('reveal');
+    playerMoveIcon.innerText = '❓';
+    playerMoveIcon.classList.remove('reveal');
+    resultBadge.classList.add('hidden');
+    
+    // Hide media controls & chat
+    mediaControls.classList.add('hidden');
+    document.getElementById('mp-chat').classList.add('hidden');
+    chatMessages.innerHTML = '';
+    
+    // Reset start button
+    startBtn.querySelector('.btn-text').innerText = 'PLAY AI';
+    startBtn.disabled = false;
+    
+    // Clear URL query parameters without page reload
+    history.pushState(null, '', window.location.pathname);
+    
+    // Hide multiplayer modal & leave button
+    mpModal.classList.add('hidden');
+    mpLeaveBtn.classList.add('hidden');
 }
 
 function sendSync(data) {
@@ -1701,3 +2163,1608 @@ function showOpponentVideo(stream) {
         oppVideo.classList.remove('hidden');
     }
 }
+
+// ===== Mobile Sensors (Accelerometer & Gyroscope) Integration =====
+const sensorBtn = document.getElementById('sensor-btn');
+let sensorsActive = false;
+
+let lastX = null, lastY = null, lastZ = null;
+let lastUpdateTime = 0;
+const shakeThreshold = 750; // Speed threshold (made slightly more sensitive)
+let lastShakeTime = 0;
+let debugEl = null;
+
+function createSensorDebugUI() {
+    if (document.getElementById('sensor-debug')) return;
+    
+    debugEl = document.createElement('div');
+    debugEl.id = 'sensor-debug';
+    debugEl.className = 'sensor-debug';
+    debugEl.innerHTML = `
+        <div style="font-weight: bold; color: #22c55e; margin-bottom: 2px;">📳 Sensor Debug Info</div>
+        <div>Speed: <span id="debug-speed">0</span> / <span id="debug-threshold">${shakeThreshold}</span></div>
+        <div>Tilt X: <span id="debug-tilt-x">0</span>°</div>
+        <div>Tilt Y: <span id="debug-tilt-y">0</span>°</div>
+        <div id="debug-warning" style="color: #ef4444; margin-top: 4px; font-size: 0.65rem;" class="hidden">⚠️ No data received</div>
+    `;
+    
+    const style = document.createElement('style');
+    style.id = 'sensor-debug-style';
+    style.textContent = `
+        .sensor-debug {
+            position: fixed;
+            bottom: 85px;
+            right: 20px;
+            background: rgba(13, 15, 22, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(12px);
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-family: monospace;
+            color: #94a3b8;
+            z-index: 10000;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            transition: opacity 0.3s ease;
+        }
+        .sensor-debug span {
+            color: #818cf8;
+            font-weight: bold;
+        }
+    `;
+    
+    document.head.appendChild(style);
+    document.body.appendChild(debugEl);
+}
+
+function removeSensorDebugUI() {
+    const el = document.getElementById('sensor-debug');
+    if (el) el.remove();
+    const style = document.getElementById('sensor-debug-style');
+    if (style) style.remove();
+    debugEl = null;
+}
+
+function getAcceleration(event) {
+    let acc = event.accelerationIncludingGravity;
+    if (acc && acc.x !== null && acc.x !== undefined) {
+        return acc;
+    }
+    acc = event.acceleration;
+    if (acc && acc.x !== null && acc.x !== undefined) {
+        return acc;
+    }
+    return null;
+}
+
+function handleDeviceMotion(event) {
+    const acc = getAcceleration(event);
+    const warningEl = document.getElementById('debug-warning');
+    
+    if (!acc) {
+        if (warningEl) {
+            warningEl.innerText = "⚠️ Accelerometer blocked/unavailable";
+            warningEl.classList.remove('hidden');
+        }
+        return;
+    }
+    
+    if (warningEl) {
+        warningEl.classList.add('hidden');
+    }
+    
+    const currentTime = Date.now();
+    const diffTime = currentTime - lastUpdateTime;
+    
+    if (diffTime > 100) {
+        const x = acc.x;
+        const y = acc.y;
+        const z = acc.z;
+        
+        if (lastX !== null) {
+            // Absolute delta difference sum across all three axes (safeguards against single-axis shakes)
+            const change = Math.abs(x - lastX) + Math.abs(y - lastY) + Math.abs(z - lastZ);
+            
+            // Calculate movement speed normalized by delta time (frequency-independent)
+            const speed = (change / diffTime) * 10000;
+            
+            // Update live debug speed UI
+            const speedEl = document.getElementById('debug-speed');
+            if (speedEl) {
+                speedEl.innerText = Math.round(speed);
+                if (speed > shakeThreshold) {
+                    speedEl.style.color = '#22c55e';
+                    setTimeout(() => { if (speedEl) speedEl.style.color = ''; }, 500);
+                }
+            }
+            
+            if (speed > shakeThreshold) {
+                const timeSinceLastShake = currentTime - lastShakeTime;
+                if (timeSinceLastShake > 2000) { // Throttle shake triggers to every 2 seconds
+                    lastShakeTime = currentTime;
+                    triggerShakeAction();
+                }
+            }
+        }
+        
+        lastX = x;
+        lastY = y;
+        lastZ = z;
+        lastUpdateTime = currentTime;
+    }
+}
+
+function triggerShakeAction() {
+    if (isGamePlaying) return;
+    
+    // Haptic feedback confirmation
+    if (navigator.vibrate) {
+        navigator.vibrate([100, 50, 100]);
+    }
+    
+    speak("Match started by shake!");
+    playGame();
+}
+
+function handleDeviceOrientation(event) {
+    const beta = event.beta;   // front-to-back tilt [-180, 180]
+    const gamma = event.gamma; // left-to-right tilt [-90, 90]
+    
+    // Update live debug tilt UI
+    const tiltXEl = document.getElementById('debug-tilt-x');
+    const tiltYEl = document.getElementById('debug-tilt-y');
+    if (tiltXEl) tiltXEl.innerText = beta !== null ? Math.round(beta) : 'N/A';
+    if (tiltYEl) tiltYEl.innerText = gamma !== null ? Math.round(gamma) : 'N/A';
+    
+    if (beta !== null && gamma !== null) {
+        // Clamp values to limit max tilt deflection (e.g. max 25 degrees)
+        const limit = 25;
+        const clampedBeta = Math.max(-limit, Math.min(limit, beta));
+        const clampedGamma = Math.max(-limit, Math.min(limit, gamma));
+        
+        // Smooth rotation mapping
+        const rotateX = (clampedBeta / limit) * 12; // rotate up to 12 degrees
+        const rotateY = -(clampedGamma / limit) * 12;
+        
+        const board = document.querySelector('.game-board');
+        if (board) {
+            board.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+        }
+    }
+}
+
+function startSensorListeners() {
+    window.addEventListener('devicemotion', handleDeviceMotion);
+    window.addEventListener('deviceorientation', handleDeviceOrientation);
+    sensorsActive = true;
+    localStorage.setItem('mobile_sensors', 'true');
+    if (sensorBtn) {
+        sensorBtn.classList.add('sensor-active');
+        sensorBtn.title = "Disable Mobile Motion Controls";
+    }
+    createSensorDebugUI();
+}
+
+function stopSensorListeners() {
+    window.removeEventListener('devicemotion', handleDeviceMotion);
+    window.removeEventListener('deviceorientation', handleDeviceOrientation);
+    sensorsActive = false;
+    localStorage.setItem('mobile_sensors', 'false');
+    
+    if (sensorBtn) {
+        sensorBtn.classList.remove('sensor-active');
+        sensorBtn.title = "Enable Mobile Motion Controls";
+    }
+    
+    // Reset CSS transform on layout
+    const board = document.querySelector('.game-board');
+    if (board) {
+        board.style.transform = '';
+    }
+    removeSensorDebugUI();
+}
+
+function toggleSensors() {
+    if (sensorsActive) {
+        stopSensorListeners();
+        speak("Motion controls disabled");
+        return;
+    }
+
+    const hasMotionEvent = typeof DeviceMotionEvent !== 'undefined' && 
+                           typeof DeviceMotionEvent.requestPermission === 'function';
+    const hasOrientationEvent = typeof DeviceOrientationEvent !== 'undefined' && 
+                                 typeof DeviceOrientationEvent.requestPermission === 'function';
+
+    if (hasMotionEvent || hasOrientationEvent) {
+        // Request iOS motion permissions synchronously inside the user click microtask
+        Promise.all([
+            hasMotionEvent ? DeviceMotionEvent.requestPermission() : Promise.resolve('granted'),
+            hasOrientationEvent ? DeviceOrientationEvent.requestPermission() : Promise.resolve('granted')
+        ]).then(([motionRes, orientRes]) => {
+            if (motionRes === 'granted' && orientRes === 'granted') {
+                startSensorListeners();
+                speak("Motion controls active. Shake device to play!");
+                if (navigator.vibrate) navigator.vibrate(150);
+            } else {
+                alert("⚠️ Sensor Access Denied. To use motion controls, please grant permission when prompted.");
+            }
+        }).catch(err => {
+            console.error("iOS Permission request error:", err);
+            alert("⚠️ Sensor Access Error: Please ensure you are viewing this page on an HTTPS connection and allow sensor access when prompted.");
+        });
+    } else {
+        // Android / Desktop or older browsers — start immediately
+        startSensorListeners();
+        speak("Motion controls active. Shake device to play!");
+        if (navigator.vibrate) navigator.vibrate(150);
+    }
+}
+
+if (sensorBtn) {
+    sensorBtn.addEventListener('click', toggleSensors);
+}
+
+// Auto-init on load if previously enabled (and browser permissions allow)
+(function initMotionSensors() {
+    const previouslyActive = localStorage.getItem('mobile_sensors') === 'true';
+    if (previouslyActive) {
+        const hasPermissionApi = typeof DeviceMotionEvent !== 'undefined' && 
+                                 typeof DeviceMotionEvent.requestPermission === 'function';
+        if (!hasPermissionApi) {
+            startSensorListeners();
+        }
+    }
+})();
+
+/* =========================================
+   Side Navigation Menu Controller
+   ========================================= */
+(function initSideMenuDrawer() {
+    const toggleBtn = document.getElementById('side-menu-toggle');
+    const closeBtn = document.getElementById('close-side-menu');
+    const drawer = document.getElementById('side-menu');
+    const overlay = document.getElementById('side-menu-overlay');
+
+    if (!toggleBtn || !drawer || !overlay) return;
+
+    function openSideMenu() {
+        overlay.classList.remove('hidden');
+        drawer.classList.remove('hidden');
+        // Force reflow for smooth transform transition
+        void drawer.offsetWidth;
+        overlay.classList.add('active');
+        drawer.classList.add('open');
+    }
+
+    function closeSideMenu() {
+        overlay.classList.remove('active');
+        drawer.classList.remove('open');
+        setTimeout(() => {
+            overlay.classList.add('hidden');
+            drawer.classList.add('hidden');
+        }, 350);
+    }
+
+    toggleBtn.addEventListener('click', openSideMenu);
+    if (closeBtn) closeBtn.addEventListener('click', closeSideMenu);
+    overlay.addEventListener('click', closeSideMenu);
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && drawer.classList.contains('open')) {
+            closeSideMenu();
+        }
+    });
+
+    // Delegate menu item navigation clicks
+    const navItems = {
+        'side-nav-ai': () => {
+            const startBtn = document.getElementById('start-btn');
+            if (startBtn) startBtn.click();
+        },
+        'side-nav-1v1': () => {
+            const mpBtn = document.getElementById('multiplayer-btn');
+            if (mpBtn) mpBtn.click();
+        },
+        'side-nav-avatar': () => {
+            const avatarBtn = document.getElementById('avatar-btn');
+            if (avatarBtn) avatarBtn.click();
+        },
+        'side-nav-trophy': () => {
+            const trophyBtn = document.getElementById('trophy-btn');
+            if (trophyBtn) trophyBtn.click();
+        },
+        'side-nav-leaderboard': () => {
+            const leaderboardBtn = document.getElementById('leaderboard-btn');
+            if (leaderboardBtn) leaderboardBtn.click();
+        },
+        'side-nav-calibrate': () => {
+            const calibrateBtn = document.getElementById('calibrate-btn');
+            if (calibrateBtn) calibrateBtn.click();
+        },
+        'side-nav-sensors': () => {
+            const sensorBtn = document.getElementById('sensor-btn');
+            if (sensorBtn) sensorBtn.click();
+        },
+        'side-nav-auth': () => {
+            const authBtn = document.getElementById('auth-btn');
+            if (authBtn) authBtn.click();
+        }
+    };
+
+    Object.keys(navItems).forEach(id => {
+        const item = document.getElementById(id);
+        if (item) {
+            item.addEventListener('click', () => {
+                closeSideMenu();
+                navItems[id]();
+            });
+        }
+    });
+
+    // Social Space Side Menu Slot Listener
+    const socialSlot = document.getElementById('side-menu-social-slot');
+    if (socialSlot) {
+        socialSlot.addEventListener('click', () => {
+            closeSideMenu();
+            openSocialSpaceModal();
+        });
+    }
+})();
+
+/* =========================================
+   Video Recording & Arena Social Space Controller
+   ========================================= */
+let mediaRecorder = null;
+let recordedChunks = [];
+let recTimerInterval = null;
+let recSeconds = 0;
+let lastRecordedBlob = null;
+let selectedTag = '🔥 Clutch';
+
+// Pre-populated default community clips for a lively social experience
+const DEFAULT_COMMUNITY_POSTS = [
+    {
+        id: 'post_tut_1',
+        author: 'Arena Coach',
+        avatar: '🎓',
+        title: 'How to Play: Hand Poses & Gesture Basics ✊✋✌️',
+        tag: '🎓 Tutorial',
+        likes: 380,
+        liked: true,
+        time: 'Official Guide',
+        stats: 'Beginner Guide • Step-by-Step',
+        isTutorial: true,
+        comments: [
+            { author: 'NewbieFighter', text: 'Super clear guide! Thanks!' }
+        ],
+        videoUrl: null
+    },
+    {
+        id: 'post_tut_2',
+        author: 'Arena Coach',
+        avatar: '⚔️',
+        title: 'Gesture Blade Slasher: Laser Finger Slicing Guide 🍉💣',
+        tag: '🎓 Tutorial',
+        likes: 412,
+        liked: true,
+        time: 'Official Guide',
+        stats: 'Arcade Mode • Fruit Slasher',
+        isTutorial: true,
+        comments: [
+            { author: 'BladeMaster', text: 'The laser trail particle effect is awesome!' }
+        ],
+        videoUrl: null
+    },
+    {
+        id: 'post_tut_3',
+        author: 'Arena Coach',
+        avatar: '🤖',
+        title: '3D Companion Drone & Palm Landmark Tracking 🛰️',
+        tag: '🎓 Tutorial',
+        likes: 245,
+        liked: false,
+        time: 'Official Guide',
+        stats: 'MediaPipe AI • 3D Drone',
+        isTutorial: true,
+        comments: [
+            { author: 'TechGamer', text: 'Love how the drone follows my hand!' }
+        ],
+        videoUrl: null
+    },
+    {
+        id: 'post_1',
+        author: 'GestureMaster',
+        avatar: '🤖',
+        title: '10 Win Streak Clutch! ✊ beat ✂️ at 0.1s!',
+        tag: '🔥 Clutch',
+        likes: 142,
+        liked: false,
+        time: '12m ago',
+        stats: 'Score: 2450 • Streak: 10',
+        comments: [
+            { author: 'CyberNinja', text: 'Unbelievable reaction speed 🔥' },
+            { author: 'PixelKing', text: 'That drone dodge was insane' }
+        ],
+        videoUrl: null
+    },
+    {
+        id: 'post_2',
+        author: 'CyberNinja',
+        avatar: '🥷',
+        title: 'Ranked Diamond Promotion Battle Highlight 🌐',
+        tag: '🏆 Win Streak',
+        likes: 98,
+        liked: false,
+        time: '45m ago',
+        stats: 'Score: 1890 • League: Diamond',
+        comments: [
+            { author: 'GestureMaster', text: 'GG WP! 👏' }
+        ],
+        videoUrl: null
+    }
+];
+
+function getStoredSocialPosts() {
+    try {
+        const stored = localStorage.getItem('arena_social_posts');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            // Ensure default official tutorial posts are always merged into storage
+            const existingIds = new Set(parsed.map(p => p.id));
+            let updated = false;
+            DEFAULT_COMMUNITY_POSTS.forEach(defPost => {
+                if (!existingIds.has(defPost.id)) {
+                    parsed.unshift(defPost);
+                    updated = true;
+                }
+            });
+            if (updated) {
+                try { localStorage.setItem('arena_social_posts', JSON.stringify(parsed)); } catch (e) {}
+            }
+            return parsed;
+        }
+    } catch (e) {
+        console.error("Error reading social posts:", e);
+    }
+    // Default fallback initial seed
+    localStorage.setItem('arena_social_posts', JSON.stringify(DEFAULT_COMMUNITY_POSTS));
+    return DEFAULT_COMMUNITY_POSTS;
+}
+
+function saveSocialPosts(posts) {
+    try {
+        localStorage.setItem('arena_social_posts', JSON.stringify(posts));
+    } catch (e) {
+        console.error("Error saving social posts:", e);
+    }
+}
+
+/* --- Recording Logic --- */
+function startGameplayRecording() {
+    const canvas = document.getElementById('output_canvas');
+    if (!canvas) return;
+
+    recordedChunks = [];
+    let stream;
+    try {
+        stream = canvas.captureStream(30);
+    } catch (e) {
+        console.error("Canvas captureStream error:", e);
+        alert("⚠️ Video recording is not supported in your browser.");
+        return;
+    }
+
+    const mimeTypes = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+        'video/mp4'
+    ];
+
+    let chosenMime = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
+
+    try {
+        mediaRecorder = chosenMime ? new MediaRecorder(stream, { mimeType: chosenMime }) : new MediaRecorder(stream);
+    } catch (e) {
+        console.error("MediaRecorder creation error:", e);
+        mediaRecorder = new MediaRecorder(stream);
+    }
+
+    mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+            recordedChunks.push(e.data);
+        }
+    };
+
+    mediaRecorder.onstop = () => {
+        clearInterval(recTimerInterval);
+        const recIndicator = document.getElementById('rec-indicator');
+        if (recIndicator) recIndicator.classList.add('hidden');
+
+        const mime = chosenMime || 'video/webm';
+        lastRecordedBlob = new Blob(recordedChunks, { type: mime });
+
+        if (lastRecordedBlob.size > 0) {
+            openPostClipModal(lastRecordedBlob);
+        } else {
+            console.warn("Recorded blob was empty, retrying fallback recording...");
+            alert("⚠️ Recording completed! Preparing clip preview...");
+            openPostClipModal(lastRecordedBlob);
+        }
+    };
+
+    // Request data chunk every 200ms
+    mediaRecorder.start(200);
+
+    // Show HUD Recording indicator & start timer
+    recSeconds = 0;
+    const recIndicator = document.getElementById('rec-indicator');
+    const recTimer = document.getElementById('rec-timer');
+    if (recIndicator) recIndicator.classList.remove('hidden');
+    if (recTimer) recTimer.innerText = '00:00';
+
+    recTimerInterval = setInterval(() => {
+        recSeconds++;
+        const mins = String(Math.floor(recSeconds / 60)).padStart(2, '0');
+        const secs = String(recSeconds % 60).padStart(2, '0');
+        if (recTimer) recTimer.innerText = `${mins}:${secs}`;
+    }, 1000);
+
+    speak("Recording started!");
+    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+}
+
+function stopGameplayRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        speak("Recording saved!");
+    }
+}
+
+function toggleGameplayRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        stopGameplayRecording();
+    } else {
+        startGameplayRecording();
+    }
+}
+
+/* --- Clip Preview & Post Modal --- */
+function openPostClipModal(blob) {
+    const modal = document.getElementById('post-clip-modal');
+    const videoElem = document.getElementById('clip-preview-video');
+    const titleInput = document.getElementById('clip-title-input');
+    if (!modal || !videoElem) return;
+
+    if (blob && blob.size > 0) {
+        const videoUrl = URL.createObjectURL(blob);
+        videoElem.src = videoUrl;
+        videoElem.load();
+        videoElem.play().catch(e => console.log("Video auto-play handled:", e));
+    }
+
+    // Suggest default title based on current game score/streak
+    const currentStreak = parseInt(document.getElementById('streak-count')?.innerText || '0', 10);
+    const activeScore = typeof slasherScore !== 'undefined' && slasherScore > 0 ? slasherScore : playerScore;
+    
+    if (activeGameMode === 'slasher') {
+        titleInput.value = `⚔️ ${activeScore} Pts Gesture Blade Highlight! 🍉`;
+    } else if (currentStreak > 1) {
+        titleInput.value = `${currentStreak} Win Streak Clutch Highlight! 🔥`;
+    } else {
+        titleInput.value = `Clutch Gesture Arena Battle Clip! 🎮`;
+    }
+
+    modal.classList.remove('hidden');
+}
+
+function closePostClipModal() {
+    const modal = document.getElementById('post-clip-modal');
+    const videoElem = document.getElementById('clip-preview-video');
+    if (modal) modal.classList.add('hidden');
+    if (videoElem) videoElem.src = '';
+}
+
+/* --- Arena Social Space Modal --- */
+function openSocialSpaceModal(activeTab = 'trending') {
+    const modal = document.getElementById('social-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    renderSocialFeed(activeTab);
+}
+
+function closeSocialSpaceModal() {
+    const modal = document.getElementById('social-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function renderSocialFeed(activeTab = 'trending') {
+    const container = document.getElementById('social-feed-container');
+    if (!container) return;
+
+    let posts = window.activePostsList || getStoredSocialPosts();
+
+    // Filter by Tab
+    if (activeTab === 'tutorials') {
+        posts = posts.filter(p => p.tag === '🎓 Tutorial' || p.isTutorial === true);
+    } else if (activeTab === 'clutch') {
+        posts = posts.filter(p => p.tag === '🔥 Clutch' || p.likes > 80);
+    } else if (activeTab === 'recent') {
+        posts = [...posts].reverse();
+    } else if (activeTab === 'my-clips') {
+        const currentAuthor = (typeof myNickname !== 'undefined' && myNickname) ? myNickname : 'YOU';
+        posts = posts.filter(p => p.isMyClip === true || p.author === currentAuthor || p.author === 'YOU' || p.author === 'Player');
+    }
+
+    if (posts.length === 0) {
+        container.innerHTML = `
+            <div style="grid-column: 1/-1; text-align: center; padding: 3rem 1rem; color: var(--text-secondary);">
+                <span style="font-size: 3rem; display:block; margin-bottom:1rem;">📹</span>
+                <h3>No clips in this category yet!</h3>
+                <p style="font-size: 0.85rem; margin-top: 0.5rem;">Be the first to record a clip and share it to the Arena Social Space!</p>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = posts.map(post => {
+        let activeVideoUrl = post.videoUrl;
+        if (!activeVideoUrl && window.arenaClipBlobs && window.arenaClipBlobs.has(post.id)) {
+            const blob = window.arenaClipBlobs.get(post.id);
+            activeVideoUrl = URL.createObjectURL(blob);
+        }
+
+        return `
+        <div class="social-card" data-id="${post.id}">
+            <div class="social-card-header">
+                <div class="social-author-avatar">${post.avatar || '🎮'}</div>
+                <div class="social-author-info">
+                    <span class="social-author-name">${escapeHtml(post.author)}</span>
+                    <span class="social-post-time">${post.time}</span>
+                </div>
+                <span class="social-tag-badge">${post.tag || '🔥 Highlight'}</span>
+            </div>
+
+            <div class="social-card-media" data-id="${post.id}">
+                ${activeVideoUrl ? 
+                    `<video src="${activeVideoUrl}" controls playsinline loop></video>` :
+                    `<div class="social-video-placeholder">
+                        <canvas class="animated-clip-canvas" data-id="${post.id}" width="320" height="180"></canvas>
+                        <div class="play-overlay-btn" title="Play Clip">▶</div>
+                    </div>`
+                }
+            </div>
+
+            <div class="social-card-body">
+                <p class="social-card-caption">${escapeHtml(post.title)}</p>
+                <div class="social-match-stats">
+                    <span>⚡ ${post.stats || 'Gesture Arena Battle'}</span>
+                </div>
+            </div>
+
+            <div class="social-card-footer">
+                <button class="social-action-btn like-btn ${post.liked ? 'liked' : ''}" data-id="${post.id}">
+                    <span class="heart-icon">${post.liked ? '❤️' : '🤍'}</span>
+                    <span class="like-count">${post.likes}</span>
+                </button>
+                <button class="social-action-btn comment-toggle-btn" data-id="${post.id}">
+                    💬 ${post.comments ? post.comments.length : 0} Comments
+                </button>
+                <button class="social-action-btn share-btn" data-id="${post.id}">
+                    🚀 Share
+                </button>
+            </div>
+
+            <div class="social-comments-drawer hidden" id="comments-${post.id}">
+                <div class="comments-list">
+                    ${(post.comments || []).map(c => `
+                        <div class="comment-item">
+                            <span class="comment-author">${escapeHtml(c.author)}:</span> ${escapeHtml(c.text)}
+                        </div>
+                    `).join('')}
+                </div>
+                <div class="comment-input-row">
+                    <input type="text" placeholder="Add a comment..." class="comment-input" data-id="${post.id}">
+                    <button class="submit-comment-btn" data-id="${post.id}">Post</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+
+    // Attach card event listeners
+    attachSocialFeedEvents();
+    // Render animated canvas placeholders for demo community posts
+    initCanvasPlaceholders();
+}
+
+/* Open Fullscreen Reel Lightbox Viewer */
+function openReelViewerModal(post) {
+    const modal = document.getElementById('reel-viewer-modal');
+    const videoElem = document.getElementById('reel-viewer-video');
+    const canvasElem = document.getElementById('reel-viewer-canvas');
+    const nameElem = document.getElementById('reel-author-name');
+    const avatarElem = document.getElementById('reel-author-avatar');
+    const badgeElem = document.getElementById('reel-tag-badge');
+    const captionElem = document.getElementById('reel-caption-text');
+
+    if (!modal) return;
+
+    if (nameElem) nameElem.innerText = post.author || 'Gesture Fighter';
+    if (avatarElem) avatarElem.innerText = post.avatar || '🎮';
+    if (badgeElem) badgeElem.innerText = post.tag || '🔥 Highlight';
+    if (captionElem) captionElem.innerText = post.title || 'Gesture Arena Gameplay Clip';
+
+    let activeVideoUrl = post.videoUrl;
+    if (!activeVideoUrl && window.arenaClipBlobs && window.arenaClipBlobs.has(post.id)) {
+        const blob = window.arenaClipBlobs.get(post.id);
+        activeVideoUrl = URL.createObjectURL(blob);
+    }
+
+    if (activeVideoUrl) {
+        if (canvasElem) canvasElem.classList.add('hidden');
+        if (videoElem) {
+            videoElem.classList.remove('hidden');
+            videoElem.src = activeVideoUrl;
+            videoElem.play().catch(() => {});
+        }
+    } else {
+        // Fallback tutorial/demo animated canvas stream
+        if (videoElem) {
+            videoElem.classList.add('hidden');
+            videoElem.src = '';
+        }
+        if (canvasElem) {
+            canvasElem.classList.remove('hidden');
+            renderReelCanvasAnimation(canvasElem, post);
+        }
+    }
+
+    modal.classList.remove('hidden');
+
+    // Voice Narration for Tutorials
+    if (post.isTutorial && typeof speak === 'function') {
+        speak(`Tutorial: ${post.title}`);
+    }
+}
+
+function closeReelViewerModal() {
+    const modal = document.getElementById('reel-viewer-modal');
+    const videoElem = document.getElementById('reel-viewer-video');
+    if (modal) modal.classList.add('hidden');
+    if (videoElem) {
+        videoElem.pause();
+        videoElem.src = '';
+    }
+}
+
+function renderReelCanvasAnimation(canvas, post) {
+    const ctx = canvas.getContext('2d');
+    let frame = 0;
+    function anim() {
+        frame++;
+        ctx.fillStyle = '#06070a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Cyber Grid Lines
+        ctx.strokeStyle = 'rgba(99, 102, 241, 0.2)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < canvas.width; x += 40) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+
+        // Draw Animated Tutorial Poses
+        ctx.font = '54px sans-serif';
+        ctx.textAlign = 'center';
+        const bounce = Math.sin(frame * 0.1) * 12;
+
+        if (post.id === 'post_tut_1') {
+            // Tutorial 1: Rock Paper Scissors Poses
+            ctx.fillText('✊', canvas.width/2 - 120, canvas.height/2 + bounce);
+            ctx.fillText('✋', canvas.width/2, canvas.height/2 - bounce);
+            ctx.fillText('✌️', canvas.width/2 + 120, canvas.height/2 + bounce);
+            ctx.font = '15px Outfit, sans-serif';
+            ctx.fillStyle = '#818cf8';
+            ctx.fillText('✊ Rock (Fist)  •  ✋ Paper (Open Palm)  •  ✌️ Scissors (V-Sign)', canvas.width/2, canvas.height/2 + 75);
+        } else if (post.id === 'post_tut_2') {
+            // Tutorial 2: Gesture Blade Slasher
+            const fingerX = canvas.width/2 + Math.cos(frame * 0.08) * 110;
+            const fingerY = canvas.height/2 + Math.sin(frame * 0.08) * 50;
+
+            // Draw glowing laser saber trail
+            ctx.beginPath();
+            ctx.arc(fingerX, fingerY, 10, 0, Math.PI * 2);
+            ctx.fillStyle = '#f43f5e';
+            ctx.shadowColor = '#f43f5e';
+            ctx.shadowBlur = 20;
+            ctx.fill();
+
+            // Draw sliced fruit emoji
+            ctx.fillText('🍉', canvas.width/2, canvas.height/2);
+            ctx.font = '15px Outfit, sans-serif';
+            ctx.fillStyle = '#f43f5e';
+            ctx.fillText('Swipe Index Finger to Slice Floating Fruits & Gems! ⚡', canvas.width/2, canvas.height/2 + 75);
+        } else if (post.id === 'post_tut_3') {
+            // Tutorial 3: 3D Drone Tracking
+            ctx.fillText('🛰️', canvas.width/2 + Math.cos(frame * 0.05) * 80, canvas.height/2 + Math.sin(frame * 0.05) * 40);
+            ctx.font = '15px Outfit, sans-serif';
+            ctx.fillStyle = '#22c55e';
+            ctx.fillText('Hold up your hand to lock the 3D Drone to your palm!', canvas.width/2, canvas.height/2 + 75);
+        } else {
+            ctx.fillText('🎮', canvas.width/2, canvas.height/2 + bounce);
+            ctx.font = '15px Outfit, sans-serif';
+            ctx.fillStyle = '#a78bfa';
+            ctx.fillText(post.title || 'Gesture Arena Clip', canvas.width/2, canvas.height/2 + 75);
+        }
+
+        if (!document.getElementById('reel-viewer-modal').classList.contains('hidden') && canvas.classList.contains('hidden') === false) {
+            requestAnimationFrame(anim);
+        }
+    }
+    anim();
+}
+
+function attachSocialFeedEvents() {
+    // Card Click Handler to open Lightbox Viewer
+    document.querySelectorAll('.social-card-media, .play-overlay-btn').forEach(media => {
+        media.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const id = media.getAttribute('data-id') || media.closest('.social-card')?.getAttribute('data-id');
+            const posts = window.activePostsList || getStoredSocialPosts();
+            const post = posts.find(p => p.id === id);
+            if (post) {
+                openReelViewerModal(post);
+            }
+        });
+    });
+
+    // Close Reel Viewer Button
+    const closeReelBtn = document.getElementById('close-reel-viewer');
+    if (closeReelBtn) {
+        closeReelBtn.addEventListener('click', closeReelViewerModal);
+    }
+    // Like button handler
+    document.querySelectorAll('.like-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const id = btn.getAttribute('data-id');
+            let posts = getStoredSocialPosts();
+            const post = posts.find(p => p.id === id);
+            if (post) {
+                post.liked = !post.liked;
+                post.likes += post.liked ? 1 : -1;
+                saveSocialPosts(posts);
+                renderSocialFeed(document.querySelector('.social-tab.active')?.getAttribute('data-tab') || 'trending');
+            }
+        });
+    });
+
+    // Comment toggle handler
+    document.querySelectorAll('.comment-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-id');
+            const drawer = document.getElementById(`comments-${id}`);
+            if (drawer) drawer.classList.toggle('hidden');
+        });
+    });
+
+    // Submit comment handler
+    document.querySelectorAll('.submit-comment-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-id');
+            const input = document.querySelector(`.comment-input[data-id="${id}"]`);
+            if (!input || !input.value.trim()) return;
+
+            let posts = getStoredSocialPosts();
+            const post = posts.find(p => p.id === id);
+            if (post) {
+                if (!post.comments) post.comments = [];
+                post.comments.push({
+                    author: userNickname || 'YOU',
+                    text: input.value.trim()
+                });
+                saveSocialPosts(posts);
+                renderSocialFeed(document.querySelector('.social-tab.active')?.getAttribute('data-tab') || 'trending');
+            }
+        });
+    });
+
+    // Share button handler
+    document.querySelectorAll('.share-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Gesture Arena Social Clip',
+                    text: 'Check out this epic gameplay clip on Gesture Arena!',
+                    url: window.location.href
+                }).catch(() => {});
+            } else {
+                navigator.clipboard.writeText(window.location.href);
+                speak("Link copied to clipboard!");
+            }
+        });
+    });
+}
+
+/* Canvas Animation Placeholder Generator for initial community posts */
+function initCanvasPlaceholders() {
+    document.querySelectorAll('.animated-clip-canvas').forEach(canvas => {
+        const ctx = canvas.getContext('2d');
+        let frame = 0;
+        function drawClip() {
+            frame++;
+            ctx.fillStyle = '#090b10';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw glowing arena grid line
+            ctx.strokeStyle = 'rgba(99, 102, 241, 0.15)';
+            ctx.lineWidth = 1;
+            for(let x=0; x<canvas.width; x+=30) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+            }
+
+            // Draw animated hand emoji battle animation
+            ctx.font = '36px sans-serif';
+            ctx.textAlign = 'center';
+            const offset = Math.sin(frame * 0.08) * 15;
+
+            ctx.fillText('✊', canvas.width/2 - 40 + offset, canvas.height/2 + 10);
+            ctx.font = '20px Outfit, sans-serif';
+            ctx.fillStyle = '#ef4444';
+            ctx.fillText('VS', canvas.width/2, canvas.height/2 + 5);
+            ctx.font = '36px sans-serif';
+            ctx.fillText('✌️', canvas.width/2 + 40 - offset, canvas.height/2 + 10);
+
+            // Watermark text
+            ctx.font = '10px monospace';
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.fillText('CLUTCH REEL • GESTURE ARENA', canvas.width/2, canvas.height - 10);
+
+            if (document.body.contains(canvas)) {
+                requestAnimationFrame(drawClip);
+            }
+        }
+        drawClip();
+    });
+}
+
+// Helper escape html
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/* Initialize Recording & Social Feed Listeners */
+(function initVideoAndSocialEvents() {
+    const recBtn = document.getElementById('rec-clip-btn');
+    const stopRecBtn = document.getElementById('stop-rec-btn');
+    const socialBtn = document.getElementById('social-feed-btn');
+    const closeSocialBtn = document.getElementById('close-social-modal');
+    const closePostBtn = document.getElementById('close-post-modal');
+    const socialRecCta = document.getElementById('social-rec-cta');
+    const downloadClipBtn = document.getElementById('download-clip-btn');
+    const postClipForm = document.getElementById('post-clip-form');
+
+    if (recBtn) recBtn.addEventListener('click', toggleGameplayRecording);
+    if (stopRecBtn) stopRecBtn.addEventListener('click', stopGameplayRecording);
+    if (socialBtn) socialBtn.addEventListener('click', () => openSocialSpaceModal('trending'));
+    if (closeSocialBtn) closeSocialBtn.addEventListener('click', closeSocialSpaceModal);
+    if (closePostBtn) closePostBtn.addEventListener('click', closePostClipModal);
+
+    if (socialRecCta) {
+        socialRecCta.addEventListener('click', () => {
+            closeSocialSpaceModal();
+            startGameplayRecording();
+        });
+    }
+
+    // Tag Chips Selection
+    document.querySelectorAll('.tag-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.tag-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            selectedTag = chip.getAttribute('data-tag');
+        });
+    });
+
+    // Download Clip Button
+    if (downloadClipBtn) {
+        downloadClipBtn.addEventListener('click', () => {
+            if (!lastRecordedBlob) return;
+            const url = URL.createObjectURL(lastRecordedBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `GestureArena-Clip-${Date.now()}.webm`;
+            a.click();
+            URL.revokeObjectURL(url);
+            speak("Clip downloaded!");
+        });
+    }
+
+    // Global In-Memory Blob Store for Video Clips
+    window.arenaClipBlobs = window.arenaClipBlobs || new Map();
+
+    // Post to Social Feed Form
+    if (postClipForm) {
+        postClipForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const titleInput = document.getElementById('clip-title-input');
+            const caption = titleInput ? titleInput.value.trim() : 'Clutch Gesture Arena Clip!';
+            
+            if (!lastRecordedBlob) {
+                alert("⚠️ No recording data found. Please record a clip first!");
+                return;
+            }
+
+            const postId = 'post_' + Date.now();
+            const videoUrl = URL.createObjectURL(lastRecordedBlob);
+
+            // Store blob in memory map
+            window.arenaClipBlobs.set(postId, lastRecordedBlob);
+
+            const activeStreak = typeof winStreak !== 'undefined' ? winStreak : 0;
+            const activeScore = typeof playerScore !== 'undefined' ? playerScore : 0;
+            const activeAuthor = (typeof myNickname !== 'undefined' && myNickname) ? myNickname : 'YOU';
+
+            const newPost = {
+                id: postId,
+                isMyClip: true,
+                author: activeAuthor,
+                avatar: (typeof myAvatarId !== 'undefined' && myAvatarId && typeof getAvatarById === 'function') ? getAvatarById(myAvatarId).emoji : '🎮',
+                title: caption,
+                tag: selectedTag || '🔥 Clutch',
+                likes: 1,
+                liked: true,
+                time: 'Just now',
+                stats: `Score: ${activeScore} • Streak: ${activeStreak}`,
+                comments: [],
+                videoUrl: videoUrl
+            };
+
+            let posts = getStoredSocialPosts();
+            posts.unshift(newPost);
+            
+            // Save metadata securely without throwing QuotaExceeded error
+            try {
+                // Strip temporary blob URLs before storing to localStorage to stay well under storage quota
+                const storablePosts = posts.map(p => {
+                    if (p.videoUrl && p.videoUrl.startsWith('blob:')) {
+                        return { ...p, videoUrl: null }; // Will be rendered via window.arenaClipBlobs
+                    }
+                    return p;
+                });
+                localStorage.setItem('arena_social_posts', JSON.stringify(storablePosts));
+            } catch (err) {
+                console.warn("localStorage quota exceeded, storing post in session memory:", err);
+            }
+
+            // Keep full post with videoUrl in active memory
+            window.activePostsList = posts;
+
+            closePostClipModal();
+            openSocialSpaceModal('my-clips');
+
+            if (typeof speak === 'function') {
+                speak("Your gameplay clip has been posted to the Arena Social Space!");
+            }
+            if (typeof confetti === 'function') {
+                confetti({ particleCount: 85, spread: 75, origin: { y: 0.6 } });
+            }
+        });
+    }
+
+    // Social Tab Switching
+    document.querySelectorAll('.social-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.social-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const category = tab.getAttribute('data-tab');
+            renderSocialFeed(category);
+        });
+    });
+})();
+
+/* =========================================
+   Gesture Blade Chaser Engine
+   Physics + collision run in blade-worker.js (parallel)
+   Main thread: MediaPipe tip + draw only
+   ========================================= */
+let activeGameMode = 'rps'; // 'rps' or 'slasher'
+let slasherScore = 0;
+let slasherCombo = 0;
+let slasherComboTimer = null;
+let frameCounter = 0;
+
+let bladeTrailPoints = [];
+let slasherTargets = [];
+let slasherSparks = [];
+let bladeRenderTip = null;
+let bladeWorkerBusy = false;
+let bladeSpawnInitial = false;
+let lastBladeVoiceAt = 0;
+let pendingBladeTip = null;
+let pendingBladeNow = 0;
+
+const SLASHER_TYPES = [
+    { type: 'watermelon', emoji: '🍉', radius: 32, pts: 50, color: '#22c55e' },
+    { type: 'orange',     emoji: '🍊', radius: 26, pts: 30, color: '#f97316' },
+    { type: 'gem',        emoji: '💎', radius: 24, pts: 100, color: '#06b6d4' },
+    { type: 'bomb',       emoji: '💣', radius: 28, pts: -100, color: '#ef4444', isBomb: true }
+];
+
+let bladeWorker = null;
+try {
+    bladeWorker = new Worker('blade-worker.js');
+    bladeWorker.onmessage = (e) => {
+        const msg = e.data;
+        if (!msg) return;
+        if (msg.type === 'tickResult') {
+            bladeWorkerBusy = false;
+            bladeTrailPoints = msg.trail || [];
+            bladeRenderTip = msg.tip;
+            slasherTargets = msg.targets || [];
+            if (msg.slicedEvents?.length) {
+                handleBladeSliceEvents(msg.slicedEvents);
+            }
+            // If a newer tip arrived while the worker was busy, flush it once
+            if (
+                activeGameMode === 'slasher' &&
+                pendingBladeNow > (msg.now || 0)
+            ) {
+                flushBladeWorkerTick();
+            }
+        }
+    };
+    bladeWorker.onerror = () => {
+        bladeWorker = null;
+        console.warn('Blade worker unavailable — using main-thread fallback');
+    };
+} catch (_) {
+    bladeWorker = null;
+}
+
+function setGameMode(mode) {
+    activeGameMode = mode;
+    const rpsBtn = document.getElementById('start-btn');
+    const bladeBtn = document.getElementById('blade-mode-btn');
+    const runnerBtn = document.getElementById('runner-mode-btn');
+    const slasherHud = document.getElementById('slasher-hud');
+    const runnerHud = document.getElementById('runner-hud');
+    const drone = document.getElementById('spline-companion-container');
+    const gestureHud = document.getElementById('gesture-indicator');
+
+    applyHandsOptionsForMode(mode);
+
+    if (slasherHud) slasherHud.classList.add('hidden');
+    if (runnerHud) runnerHud.classList.add('hidden');
+    if (bladeBtn) bladeBtn.classList.remove('active-mode');
+    if (runnerBtn) runnerBtn.classList.remove('active-mode');
+    if (rpsBtn) rpsBtn.style.opacity = '1';
+    if (drone) drone.style.visibility = '';
+    indicator?.classList.remove('hidden');
+
+    if (window.GestureRunner && mode !== 'runner') {
+        window.GestureRunner.stop();
+    }
+    if (window.TrainingLab?.isActive?.()) {
+        window.TrainingLab.stop();
+    }
+
+    if (mode === 'slasher') {
+        if (slasherHud) slasherHud.classList.remove('hidden');
+        if (bladeBtn) bladeBtn.classList.add('active-mode');
+        if (rpsBtn) rpsBtn.style.opacity = '0.6';
+
+        if (drone) drone.style.visibility = 'hidden';
+        if (gestureHud) gestureHud.classList.add('hidden');
+        indicator?.classList.add('hidden');
+
+        slasherScore = 0;
+        slasherCombo = 0;
+        slasherTargets = [];
+        bladeTrailPoints = [];
+        slasherSparks = [];
+        bladeRenderTip = null;
+        bladeSpawnInitial = true;
+        bladeWorkerBusy = false;
+        updateSlasherHUD();
+
+        if (bladeWorker) {
+            bladeWorker.postMessage({ type: 'reset' });
+        }
+
+        speak("Gesture Blade active! Swipe your index finger to slash targets!");
+        if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60 });
+    } else if (mode === 'runner') {
+        if (runnerHud) runnerHud.classList.remove('hidden');
+        if (runnerBtn) runnerBtn.classList.add('active-mode');
+        if (rpsBtn) rpsBtn.style.opacity = '0.6';
+        if (drone) drone.style.visibility = 'hidden';
+        if (gestureHud) gestureHud.classList.add('hidden');
+        indicator?.classList.add('hidden');
+        slasherTargets = [];
+        bladeTrailPoints = [];
+
+        if (window.GestureRunner) window.GestureRunner.start();
+    } else {
+        slasherTargets = [];
+        bladeTrailPoints = [];
+        speak("Rock Paper Scissors mode active.");
+    }
+}
+
+function updateSlasherHUD() {
+    const scoreVal = document.getElementById('slasher-score-val');
+    const comboBox = document.getElementById('slasher-combo-box');
+    const comboVal = document.getElementById('slasher-combo-val');
+
+    if (scoreVal) scoreVal.innerText = slasherScore;
+    if (comboBox && comboVal) {
+        if (slasherCombo > 1) {
+            comboBox.classList.remove('hidden');
+            comboVal.innerText = `x${slasherCombo}`;
+        } else {
+            comboBox.classList.add('hidden');
+        }
+    }
+}
+
+function handleBladeSliceEvents(events) {
+    for (const ev of events) {
+        if (ev.isBomb) {
+            slasherScore = Math.max(0, slasherScore - 100);
+            slasherCombo = 0;
+            updateSlasherHUD();
+            spawnSparkExplosion(ev.x, ev.y, '#ef4444', 14);
+            if (Date.now() - lastBladeVoiceAt > 1200) {
+                lastBladeVoiceAt = Date.now();
+                speak("Bomb detonated!");
+            }
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        } else {
+            slasherCombo++;
+            clearTimeout(slasherComboTimer);
+            slasherComboTimer = setTimeout(() => {
+                slasherCombo = 0;
+                updateSlasherHUD();
+            }, 2000);
+            slasherScore += ev.pts * Math.max(1, slasherCombo);
+            updateSlasherHUD();
+            spawnSparkExplosion(ev.x, ev.y, ev.color, 12);
+        }
+    }
+}
+
+function flushBladeWorkerTick() {
+    const canvas = document.getElementById('output_canvas');
+    if (!bladeWorker || !canvas || bladeWorkerBusy) return;
+    bladeWorkerBusy = true;
+    const spawnInitial = bladeSpawnInitial;
+    bladeSpawnInitial = false;
+    const now = pendingBladeNow || Date.now();
+    bladeWorker.postMessage({
+        type: 'tick',
+        now,
+        canvasW: canvas.width,
+        canvasH: canvas.height,
+        tip: pendingBladeTip,
+        templates: SLASHER_TYPES,
+        spawnInitial,
+    });
+}
+
+/** Push tip to worker (or fallback) then paint latest state */
+function tickBladeEngine(indexTipLandmark, indexDipLandmark) {
+    const canvas = document.getElementById('output_canvas');
+    if (!canvas || !canvasCtx) return;
+
+    const now = Date.now();
+    let tipPayload = null;
+    if (indexTipLandmark) {
+        // Blend tip with DIP for a more stable blade point
+        const dipW = indexDipLandmark ? 0.22 : 0;
+        const lx = indexTipLandmark.x * (1 - dipW) + (indexDipLandmark?.x || 0) * dipW;
+        const ly = indexTipLandmark.y * (1 - dipW) + (indexDipLandmark?.y || 0) * dipW;
+        tipPayload = {
+            x: lx * canvas.width,
+            y: ly * canvas.height,
+        };
+    }
+
+    pendingBladeTip = tipPayload;
+    pendingBladeNow = now;
+
+    if (bladeWorker) {
+        if (!bladeWorkerBusy) flushBladeWorkerTick();
+    } else {
+        updateSlasherEngineFallback(tipPayload, now, canvas);
+    }
+
+    drawBladeFrame(now);
+}
+
+function drawBladeFrame(now) {
+    // FPS badge (throttled DOM writes)
+    if (window.lastFrameTime) {
+        const delta = now - window.lastFrameTime;
+        if (delta > 0 && frameCounter % 20 === 0) {
+            const fpsEl = document.getElementById('fps-badge');
+            if (fpsEl) {
+                const fpsVal = Math.min(60, Math.round(1000 / delta));
+                fpsEl.innerText = `⚡ ${fpsVal} FPS • ${Math.round(delta)}ms`;
+            }
+        }
+    }
+    window.lastFrameTime = now;
+    frameCounter++;
+
+    // Laser trail
+    if (bladeTrailPoints.length > 1) {
+        canvasCtx.save();
+        canvasCtx.lineCap = 'round';
+        canvasCtx.lineJoin = 'round';
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(bladeTrailPoints[0].x, bladeTrailPoints[0].y);
+        for (let i = 1; i < bladeTrailPoints.length; i++) {
+            canvasCtx.lineTo(bladeTrailPoints[i].x, bladeTrailPoints[i].y);
+        }
+        canvasCtx.lineWidth = 16;
+        canvasCtx.strokeStyle = 'rgba(244, 63, 94, 0.4)';
+        canvasCtx.stroke();
+        canvasCtx.lineWidth = 7;
+        canvasCtx.strokeStyle = '#ec4899';
+        canvasCtx.stroke();
+        canvasCtx.lineWidth = 3;
+        canvasCtx.strokeStyle = '#ffffff';
+        canvasCtx.stroke();
+        canvasCtx.restore();
+    }
+
+    if (bladeRenderTip) {
+        canvasCtx.save();
+        canvasCtx.beginPath();
+        canvasCtx.arc(bladeRenderTip.x, bladeRenderTip.y, 14, 0, Math.PI * 2);
+        canvasCtx.fillStyle = 'rgba(244, 63, 94, 0.5)';
+        canvasCtx.fill();
+        canvasCtx.beginPath();
+        canvasCtx.arc(bladeRenderTip.x, bladeRenderTip.y, 8, 0, Math.PI * 2);
+        canvasCtx.fillStyle = '#f43f5e';
+        canvasCtx.fill();
+        canvasCtx.beginPath();
+        canvasCtx.arc(bladeRenderTip.x, bladeRenderTip.y, 4, 0, Math.PI * 2);
+        canvasCtx.fillStyle = '#ffffff';
+        canvasCtx.fill();
+        canvasCtx.restore();
+    }
+
+    // Targets (no shadowBlur — expensive & invisible on many GPUs)
+    for (const target of slasherTargets) {
+        if (!target.sliced) {
+            canvasCtx.save();
+            canvasCtx.translate(target.x, target.y);
+            canvasCtx.rotate(target.angle || 0);
+            canvasCtx.font = `${target.radius * 1.5}px sans-serif`;
+            canvasCtx.textAlign = 'center';
+            canvasCtx.textBaseline = 'middle';
+            canvasCtx.fillText(target.emoji, 0, 0);
+            canvasCtx.beginPath();
+            canvasCtx.arc(0, 0, target.radius + 2, 0, Math.PI * 2);
+            canvasCtx.strokeStyle = target.color;
+            canvasCtx.lineWidth = 2;
+            canvasCtx.stroke();
+            canvasCtx.restore();
+        } else if (target.halves) {
+            for (const h of target.halves) {
+                if (h.alpha <= 0) continue;
+                canvasCtx.save();
+                canvasCtx.translate(h.x, h.y);
+                canvasCtx.rotate(h.angle);
+                canvasCtx.font = `${target.radius * 1.2}px sans-serif`;
+                canvasCtx.textAlign = 'center';
+                canvasCtx.textBaseline = 'middle';
+                canvasCtx.globalAlpha = Math.max(0, h.alpha);
+                canvasCtx.fillText(target.emoji, 0, 0);
+                canvasCtx.restore();
+            }
+        }
+    }
+
+    for (let i = slasherSparks.length - 1; i >= 0; i--) {
+        const s = slasherSparks[i];
+        s.x += s.vx;
+        s.y += s.vy;
+        s.life -= 0.05;
+        if (s.life <= 0) {
+            slasherSparks.splice(i, 1);
+            continue;
+        }
+        canvasCtx.save();
+        canvasCtx.globalAlpha = s.life;
+        canvasCtx.fillStyle = s.color;
+        canvasCtx.fillRect(s.x, s.y, s.size, s.size);
+        canvasCtx.restore();
+    }
+}
+
+/* Main-thread fallback if Worker is blocked */
+function updateSlasherEngineFallback(tipPayload, now, canvas) {
+    if (bladeSpawnInitial && slasherTargets.length === 0) {
+        for (let n = 0; n < 3; n++) spawnSlasherTargetLocal(canvas);
+        bladeSpawnInitial = false;
+    }
+    if (!window._bladeLastSpawn) window._bladeLastSpawn = 0;
+    if (now - window._bladeLastSpawn > 850) {
+        spawnSlasherTargetLocal(canvas);
+        window._bladeLastSpawn = now;
+    }
+
+    if (tipPayload) {
+        bladeTrailPoints.push({ ...tipPayload, t: now });
+        bladeRenderTip = tipPayload;
+    }
+    bladeTrailPoints = bladeTrailPoints.filter((p) => now - p.t < 320);
+
+    const events = [];
+    for (let i = slasherTargets.length - 1; i >= 0; i--) {
+        const target = slasherTargets[i];
+        if (!target.sliced) {
+            target.x += target.vx;
+            target.y += target.vy;
+            target.vy += target.gravity;
+            target.angle += target.vRot;
+            if (bladeTrailPoints.length && isTargetSlicedByTrail(target, bladeTrailPoints)) {
+                target.sliced = true;
+                events.push({
+                    id: target.id,
+                    isBomb: target.isBomb,
+                    x: target.x,
+                    y: target.y,
+                    pts: target.pts,
+                    color: target.color,
+                });
+                createHalfPieces(target);
+            }
+        } else if (target.halves) {
+            target.halves.forEach((h) => {
+                h.x += h.vx;
+                h.y += h.vy;
+                h.vy += target.gravity;
+                h.angle += h.vRot;
+                h.alpha -= 0.025;
+            });
+        }
+        if (target.y > canvas.height + 60) slasherTargets.splice(i, 1);
+    }
+    if (events.length) handleBladeSliceEvents(events);
+}
+
+function spawnSlasherTargetLocal(canvas) {
+    const template = SLASHER_TYPES[Math.floor(Math.random() * SLASHER_TYPES.length)];
+    slasherTargets.push({
+        id: 'target_' + Date.now() + '_' + Math.random(),
+        x: Math.random() * (canvas.width - 140) + 70,
+        y: canvas.height + 10,
+        vx: (Math.random() - 0.5) * 5.5,
+        vy: -(Math.random() * 4 + 14.5),
+        gravity: 0.26,
+        radius: template.radius,
+        emoji: template.emoji,
+        pts: template.pts,
+        color: template.color,
+        isBomb: template.isBomb || false,
+        sliced: false,
+        angle: 0,
+        vRot: (Math.random() - 0.5) * 0.08,
+        halves: null,
+    });
+}
+
+function isTargetSlicedByTrail(target, points) {
+    if (!points || points.length === 0) return false;
+    const hitRadius = target.radius + 26;
+    for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        if (Math.hypot(target.x - p.x, target.y - p.y) <= hitRadius) return true;
+        if (i > 0) {
+            const prevP = points[i - 1];
+            if (distToSegment(target.x, target.y, prevP.x, prevP.y, p.x, p.y) <= hitRadius) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+    const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+    if (l2 === 0) return Math.hypot(px - x1, py - y1);
+    let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
+}
+
+function createHalfPieces(target) {
+    target.halves = [
+        { x: target.x - 10, y: target.y, vx: target.vx - 3, vy: target.vy - 2, angle: target.angle, vRot: -0.1, alpha: 1 },
+        { x: target.x + 10, y: target.y, vx: target.vx + 3, vy: target.vy - 2, angle: target.angle, vRot: 0.1, alpha: 1 }
+    ];
+}
+
+function spawnSparkExplosion(x, y, color, count = 12) {
+    const n = Math.min(count, 16);
+    for (let i = 0; i < n; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 8 + 2;
+        slasherSparks.push({
+            x,
+            y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: Math.random() * 3 + 2,
+            color,
+            life: 1.0,
+        });
+    }
+}
+
+/* Event listeners for Slasher Mode toggle */
+(function initSlasherModeEvents() {
+    const bladeBtn = document.getElementById('blade-mode-btn');
+    const sideBladeBtn = document.getElementById('side-nav-blade');
+
+    if (bladeBtn) {
+        bladeBtn.addEventListener('click', () => {
+            if (activeGameMode === 'slasher') {
+                setGameMode('rps');
+            } else {
+                setGameMode('slasher');
+            }
+        });
+    }
+
+    if (sideBladeBtn) {
+        sideBladeBtn.addEventListener('click', () => {
+            if (typeof closeSideMenu === 'function') closeSideMenu();
+            setGameMode('slasher');
+        });
+    }
+
+    const sideTrainerBtn = document.getElementById('side-nav-trainer');
+    if (sideTrainerBtn) {
+        sideTrainerBtn.addEventListener('click', () => {
+            if (typeof closeSideMenu === 'function') closeSideMenu();
+            if (typeof openTrainingLab === 'function') openTrainingLab();
+        });
+    }
+
+    const runnerBtn = document.getElementById('runner-mode-btn');
+    const sideRunnerBtn = document.getElementById('side-nav-runner');
+
+    if (runnerBtn) {
+        runnerBtn.addEventListener('click', () => {
+            if (activeGameMode === 'runner') {
+                setGameMode('rps');
+            } else {
+                if (typeof startUserCamera === 'function' && !window.isArenaCameraActive?.()) {
+                    startUserCamera();
+                }
+                setGameMode('runner');
+            }
+        });
+    }
+
+    if (sideRunnerBtn) {
+        sideRunnerBtn.addEventListener('click', () => {
+            if (typeof closeSideMenu === 'function') closeSideMenu();
+            if (typeof startUserCamera === 'function' && !window.isArenaCameraActive?.()) {
+                startUserCamera();
+            }
+            setGameMode('runner');
+        });
+    }
+})();
+
+
+

@@ -12,6 +12,9 @@
     <meta property="og:url" content="https://gesture-game-ai.vercel.app">
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="training-lab.css">
+    <link rel="stylesheet" href="gesture-runner.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✊</text></svg>">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <!-- MediaPipe Scripts -->
@@ -23,6 +26,8 @@
     <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
     <!-- Supabase JS SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Spline 3D Viewer -->
+    <script type="module" src="https://unpkg.com/@splinetool/viewer@1.9.82/build/spline-viewer.js"></script>
 </head>
 <body>
     <!-- Animated Background -->
@@ -37,6 +42,9 @@
         <header id="app-header">
             <div class="header-top">
                 <div class="logo-group">
+                    <button id="side-menu-toggle" class="icon-btn side-menu-trigger" title="Open Navigation Menu" aria-label="Open Menu">
+                        <span class="hamburger-icon">☰</span>
+                    </button>
                     <div class="logo-icon">🎮</div>
                     <div class="logo-text">
                         <h1>GESTURE <span class="accent">ARENA</span></h1>
@@ -45,6 +53,9 @@
                 </div>
                 <div class="header-actions">
                     <div id="round-badge" class="round-badge">Round <span id="round-num">1</span></div>
+                    <button id="social-feed-btn" class="icon-btn social-trigger-btn" title="Arena Reels & Social Space" aria-label="Social Space">
+                        📹
+                    </button>
                     <button id="avatar-btn" class="icon-btn" title="Choose Avatar" aria-label="Avatar">
                         🎭
                     </button>
@@ -60,8 +71,14 @@
                     <button id="calibrate-btn" class="icon-btn" title="AI Gesture Calibration" aria-label="Calibrate">
                         🎯
                     </button>
+                    <button id="training-lab-btn" class="icon-btn" title="Training Lab" aria-label="Training Lab">
+                        ⚡
+                    </button>
                     <button id="admin-panel-btn" class="icon-btn admin-only-btn hidden" title="Admin Control Center" aria-label="Admin Panel">
                         🛡️
+                    </button>
+                    <button id="sensor-btn" class="icon-btn" title="Mobile Motion Controls" aria-label="Sensors">
+                        📳
                     </button>
                     <button id="auth-btn" class="icon-btn" title="Account Credentials" aria-label="Account">
                         <span id="auth-btn-icon">👤</span>
@@ -77,15 +94,60 @@
                     <video id="input_video" autoplay playsinline muted></video>
                     <video id="opponent_video" autoplay playsinline class="hidden"></video>
                     
-                    <div class="media-controls hidden" id="media-controls">
+                    <div class="media-controls" id="media-controls">
                         <button class="media-btn" id="toggle-mic" title="Toggle Mic">🎤</button>
                         <button class="media-btn" id="toggle-cam" title="Toggle Camera">📷</button>
+                        <button class="media-btn rec-btn" id="rec-clip-btn" title="Record Gameplay Clip">
+                            <span class="rec-dot"></span>
+                            <span class="rec-text">REC</span>
+                        </button>
                     </div>
+                    
+                    <!-- Live Recording Indicator Overlay -->
+                    <div id="rec-indicator" class="rec-indicator hidden">
+                        <span class="rec-pulse-dot"></span>
+                        <span class="rec-label">RECORDING</span>
+                        <span id="rec-timer" class="rec-timer">00:00</span>
+                        <button id="stop-rec-btn" class="stop-rec-btn">⏹️ Stop</button>
+                    </div>
+
+                    <!-- Gesture Blade Slasher Mode HUD Overlay -->
+                    <div id="slasher-hud" class="slasher-hud hidden">
+                        <div class="slasher-mode-pill">⚔️ GESTURE BLADE ACTIVE</div>
+                        <div id="fps-badge" class="fps-badge">⚡ 60 FPS • 12ms</div>
+                        <div class="slasher-score-box">
+                            <span class="slasher-score-label">SCORE</span>
+                            <span id="slasher-score-val" class="slasher-score-val">0</span>
+                        </div>
+                        <div id="slasher-combo-box" class="slasher-combo-box hidden">
+                            <span class="combo-fire">🔥</span>
+                            <span id="slasher-combo-val" class="slasher-combo-val">x2</span>
+                            <span class="combo-text">COMBO!</span>
+                        </div>
+                    </div>
+
+                    <!-- Gesture Runner HUD -->
+                    <div id="runner-hud" class="runner-hud hidden">
+                        <div class="runner-mode-pill">🏃 GESTURE RUNNER</div>
+                        <div class="runner-score-box">Score: <span id="runner-score-val">0</span></div>
+                        <div class="runner-hs-box">Best: <span id="runner-hs-val">0</span></div>
+                        <div class="runner-gesture-box">Gesture: <span id="runner-gesture-val">–</span></div>
+                    </div>
+
+                    <div id="runner-overlay" class="runner-overlay hidden">
+                        <div class="runner-overlay-card">
+                            <h2 id="runner-overlay-title">Gesture Runner</h2>
+                            <p id="runner-overlay-body"></p>
+                            <p class="runner-hint">Best on Chrome · Show your hand clearly</p>
+                        </div>
+                    </div>
+
                     <canvas id="output_canvas" width="640" height="480"></canvas>
                     <div id="countdown" class="countdown hidden">
                         <span class="countdown-number">3</span>
                     </div>
                     <div id="gesture-indicator" class="gesture-indicator hidden"></div>
+                    <div id="training-hud" class="training-hud hidden"></div>
                     <div class="video-border"></div>
                     <div id="camera-status" class="camera-status camera-status--loading">
                         <span class="pulse-dot"></span> <span id="camera-status-text">Starting camera…</span>
@@ -99,6 +161,37 @@
                                 <span class="btn-text">Enable Camera</span>
                             </button>
                             <p id="camera-error-msg" class="camera-error-msg hidden"></p>
+                        </div>
+                    </div>
+                    
+                    <!-- 3D Drone Companion HUD -->
+                    <div id="spline-companion-container" title="3D Companion Drone">
+                        <!-- HUD corner brackets -->
+                        <div class="hud-corner hud-tl"></div>
+                        <div class="hud-corner hud-tr"></div>
+                        <div class="hud-corner hud-bl"></div>
+                        <div class="hud-corner hud-br"></div>
+                        <!-- Scanline overlay -->
+                        <div class="hud-scanline"></div>
+                        <!-- Status bar -->
+                        <div class="companion-status" id="companion-status-label">
+                            <span class="status-dot"></span>
+                            <span id="drone-status-text">DRONE: ACTIVE</span>
+                            <span class="signal-bars"><i></i><i></i><i></i></span>
+                        </div>
+                        <!-- Spline 3D robot: high-quality sci-fi robot companion -->
+                        <spline-viewer hint="false" loading-events="false"
+                            url="https://prod.spline.design/kZDDjO5HlWTqSBnB/scene.splinecode">
+                        </spline-viewer>
+                        <!-- Targeting reticle label -->
+                        <div class="hud-target-ring">
+                            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(99,102,241,0.35)" stroke-width="1" stroke-dasharray="6 4"/>
+                                <line x1="50" y1="5" x2="50" y2="20" stroke="rgba(99,102,241,0.6)" stroke-width="1.5"/>
+                                <line x1="50" y1="80" x2="50" y2="95" stroke="rgba(99,102,241,0.6)" stroke-width="1.5"/>
+                                <line x1="5" y1="50" x2="20" y2="50" stroke="rgba(99,102,241,0.6)" stroke-width="1.5"/>
+                                <line x1="80" y1="50" x2="95" y2="50" stroke="rgba(99,102,241,0.6)" stroke-width="1.5"/>
+                            </svg>
                         </div>
                     </div>
                 </div>
@@ -147,6 +240,14 @@
                 <div class="action-buttons">
                     <button id="start-btn" class="primary-btn">
                         <span class="btn-text">PLAY AI</span>
+                        <span class="btn-glow"></span>
+                    </button>
+                    <button id="blade-mode-btn" class="primary-btn slasher-btn" title="Gesture Blade Fruit Slasher Mode">
+                        <span class="btn-text">⚔️ GESTURE BLADE</span>
+                        <span class="btn-glow"></span>
+                    </button>
+                    <button id="runner-mode-btn" class="primary-btn runner-btn" title="Gesture Runner — fly through pipes">
+                        <span class="btn-text">🏃 RUNNER</span>
                         <span class="btn-glow"></span>
                     </button>
                     <button id="multiplayer-btn" class="secondary-btn" title="Play with a friend">
@@ -413,7 +514,275 @@
         </div>
     </div>
 
+    <!-- Training Lab Modal -->
+    <div id="training-lab-modal" class="modal hidden">
+        <div class="modal-content training-lab-content">
+            <div class="modal-header">
+                <h2>⚡ Training Lab</h2>
+                <button id="training-lab-close" class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <p class="modal-desc">Practice gestures, run accuracy tests, and train Blade Chaser. Stats save in your browser.</p>
+
+            <div id="training-stats-panel" class="training-stats-panel"></div>
+
+            <div class="training-actions">
+                <button type="button" id="training-start-drill" class="training-action-card">
+                    <span class="training-action-icon">🎯</span>
+                    <span class="training-action-title">RPS Drill</span>
+                    <span class="training-action-desc">Random Rock/Paper/Scissors — hold each pose until the bar fills</span>
+                </button>
+                <button type="button" id="training-start-test" class="training-action-card">
+                    <span class="training-action-icon">📋</span>
+                    <span class="training-action-title">9-Gesture Test</span>
+                    <span class="training-action-desc">Scored accuracy run (3× each gesture, shuffled)</span>
+                </button>
+                <button type="button" id="training-start-blade" class="training-action-card blade">
+                    <span class="training-action-icon">⚔️</span>
+                    <span class="training-action-title">Blade Drill (30s)</span>
+                    <span class="training-action-desc">Slash mode — maximize score and combo in half a minute</span>
+                </button>
+                <button type="button" id="training-open-calibrate" class="training-action-card secondary">
+                    <span class="training-action-icon">✋</span>
+                    <span class="training-action-title">Calibrate My Hands</span>
+                    <span class="training-action-desc">Record custom Rock, Paper, Scissors shapes</span>
+                </button>
+            </div>
+
+            <div class="training-lab-footer">
+                <button type="button" id="training-reset-stats" class="secondary-btn">Reset stats</button>
+                <button type="button" id="training-lab-close2" class="primary-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Side Menu Overlay & Drawer Panel -->
+    <div id="side-menu-overlay" class="side-menu-overlay hidden"></div>
+    <aside id="side-menu" class="side-menu-drawer hidden" aria-label="Navigation Menu">
+        <div class="side-menu-header">
+            <div class="side-menu-title-group">
+                <span class="side-menu-badge">ARENA HUB</span>
+                <h2>Navigation Menu</h2>
+            </div>
+            <button id="close-side-menu" class="side-menu-close" aria-label="Close Side Menu">&times;</button>
+        </div>
+
+        <div class="side-menu-content">
+            <!-- Arena Reels & Social Space Slot -->
+            <div class="side-menu-section feature-zone-slot">
+                <div class="section-label">
+                    <span class="pulse-spark">📹</span> COMMUNITY REELS & CLIPS
+                    <span class="new-tag">HOT</span>
+                </div>
+                <div class="feature-slot-card" id="side-menu-social-slot">
+                    <div class="feature-slot-icon">🎬</div>
+                    <div class="feature-slot-text">
+                        <h4>Arena Social Space</h4>
+                        <p>Record & watch clutch gameplay clips, share highlights & upvote top plays!</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Modes & Arena Quick Links -->
+            <div class="side-menu-section">
+                <div class="section-label">🎮 GAME MODES</div>
+                <ul class="side-menu-nav">
+                    <li>
+                        <button class="side-menu-item" id="side-nav-ai">
+                            <span class="item-icon">🤖</span>
+                            <span class="item-text">Play vs AI (RPS)</span>
+                            <span class="item-tag">Classic</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button class="side-menu-item" id="side-nav-blade">
+                            <span class="item-icon">⚔️</span>
+                            <span class="item-text">Gesture Blade Slasher</span>
+                            <span class="item-tag live">NEW</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button class="side-menu-item" id="side-nav-runner">
+                            <span class="item-icon">🏃</span>
+                            <span class="item-text">Gesture Runner</span>
+                            <span class="item-tag live">NEW</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button class="side-menu-item" id="side-nav-1v1">
+                            <span class="item-icon">🌐</span>
+                            <span class="item-text">1v1 Multiplayer Match</span>
+                            <span class="item-tag live">LIVE</span>
+                        </button>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Player Profile & Customization -->
+            <div class="side-menu-section">
+                <div class="section-label">🎭 CUSTOMIZATION & RANK</div>
+                <ul class="side-menu-nav">
+                    <li>
+                        <button class="side-menu-item" id="side-nav-trainer">
+                            <span class="item-icon">⚡</span>
+                            <span class="item-text">AI Accuracy & FPS Trainer</span>
+                            <span class="item-tag live">FAST</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button class="side-menu-item" id="side-nav-avatar">
+                            <span class="item-icon">🎭</span>
+                            <span class="item-text">Choose Avatar</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button class="side-menu-item" id="side-nav-trophy">
+                            <span class="item-icon">🏅</span>
+                            <span class="item-text">Trophy Room & Rank</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button class="side-menu-item" id="side-nav-leaderboard">
+                            <span class="item-icon">🏆</span>
+                            <span class="item-text">Global Leaderboard</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button class="side-menu-item" id="side-nav-calibrate">
+                            <span class="item-icon">🎯</span>
+                            <span class="item-text">AI Gesture Calibration</span>
+                        </button>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Hardware & System Settings -->
+            <div class="side-menu-section">
+                <div class="section-label">⚙️ SYSTEM CONTROLS</div>
+                <ul class="side-menu-nav">
+                    <li>
+                        <button class="side-menu-item" id="side-nav-sensors">
+                            <span class="item-icon">📳</span>
+                            <span class="item-text">Mobile Motion Controls</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button class="side-menu-item" id="side-nav-auth">
+                            <span class="item-icon">👤</span>
+                            <span class="item-text">Account Credentials</span>
+                        </button>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="side-menu-footer">
+            <div class="drone-hud-status">
+                <span class="online-indicator"></span>
+                <span>SYSTEM ENGINE ACTIVE</span>
+            </div>
+            <p class="side-menu-ver">Gesture Arena v2.5 • AI Engine</p>
+        </div>
+    </aside>
+
+    <!-- Post Clip Preview Modal -->
+    <div id="post-clip-modal" class="modal hidden">
+        <div class="modal-content post-clip-content">
+            <div class="modal-header">
+                <h2>📹 Preview & Share Gameplay Clip</h2>
+                <button id="close-post-modal" class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <p class="modal-desc">Share your epic gesture battle with the Gesture Arena community!</p>
+
+            <div class="clip-preview-container">
+                <video id="clip-preview-video" controls autoplay loop playsinline></video>
+                <div class="clip-hud-watermark">
+                    <span class="wm-logo">🎮 GESTURE ARENA</span>
+                    <span class="wm-tag">CLUTCH REEL</span>
+                </div>
+            </div>
+
+            <form id="post-clip-form" class="post-clip-form">
+                <div class="input-group">
+                    <label for="clip-title-input">Clip Caption / Title</label>
+                    <input type="text" id="clip-title-input" placeholder="e.g. 5-0 Flawless Victory! ✊ vs ✌️" required maxlength="60">
+                </div>
+
+                <div class="clip-tag-selector">
+                    <span class="tag-chip active" data-tag="🔥 Clutch">🔥 Clutch</span>
+                    <span class="tag-chip" data-tag="🏆 Win Streak">🏆 Win Streak</span>
+                    <span class="tag-chip" data-tag="🤖 vs AI">🤖 vs AI</span>
+                    <span class="tag-chip" data-tag="🌐 1v1 PvP">🌐 1v1 PvP</span>
+                </div>
+
+                <div class="modal-actions post-actions">
+                    <button type="button" id="download-clip-btn" class="secondary-btn flex-1">
+                        <span>💾 Download Clip</span>
+                    </button>
+                    <button type="submit" id="share-clip-submit" class="primary-btn flex-2">
+                        <span class="btn-text">🚀 Post to Social Space</span>
+                        <span class="btn-glow"></span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Arena Social Space Feed Modal -->
+    <div id="social-modal" class="modal hidden">
+        <div class="modal-content social-space-content">
+            <div class="modal-header social-header">
+                <div class="social-title-area">
+                    <span class="social-badge">COMMUNITY HUB</span>
+                    <h2>📹 Arena Social Space</h2>
+                </div>
+                <div class="social-header-actions">
+                    <button id="social-rec-cta" class="primary-btn rec-cta-btn">
+                        <span class="rec-dot"></span> 🎥 Record Clip
+                    </button>
+                    <button id="close-social-modal" class="modal-close" aria-label="Close">&times;</button>
+                </div>
+            </div>
+
+            <!-- Feed Filter Tabs -->
+            <div class="social-tabs">
+                <button class="social-tab active" data-tab="trending">🔥 Trending</button>
+                <button class="social-tab" data-tab="tutorials">🎓 Tutorials</button>
+                <button class="social-tab" data-tab="clutch">🏆 Top Clutches</button>
+                <button class="social-tab" data-tab="recent">⚡ Recent Reels</button>
+                <button class="social-tab" data-tab="my-clips">👤 My Clips</button>
+            </div>
+
+            <!-- Social Feed Container -->
+            <div id="social-feed-container" class="social-feed-grid">
+                <!-- Injected dynamically via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Reel Lightbox Video Viewer Modal -->
+    <div id="reel-viewer-modal" class="modal hidden">
+        <div class="modal-content reel-lightbox-content">
+            <button id="close-reel-viewer" class="reel-close-btn" aria-label="Close Viewer">&times;</button>
+            <div class="reel-player-wrapper">
+                <video id="reel-viewer-video" controls autoplay loop playsinline></video>
+                <canvas id="reel-viewer-canvas" class="reel-canvas-fallback hidden" width="640" height="360"></canvas>
+                <div class="reel-overlay-hud">
+                    <div class="reel-author-bar">
+                        <div id="reel-author-avatar" class="reel-avatar">🎮</div>
+                        <div class="reel-author-meta">
+                            <h4 id="reel-author-name">GestureMaster</h4>
+                            <span id="reel-tag-badge" class="reel-badge">🎓 Tutorial</span>
+                        </div>
+                    </div>
+                    <p id="reel-caption-text" class="reel-caption">Learn how to master hand gestures in Gesture Arena!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="avatars.js"></script>
     <script src="script.js"></script>
+    <script src="gesture-runner.js"></script>
+    <script src="training-lab.js"></script>
 </body>
 </html>
